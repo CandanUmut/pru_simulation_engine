@@ -1,0 +1,19 @@
+//! Minimal user interface for simulation control and status readout.
+
+use bevy::prelude::*;
+
+use crate::ui::controls::{keyboard_controls, setup_ui, update_status_text, update_ui_buttons};
+
+pub mod controls;
+
+/// Plugin encapsulating UI setup and interactions.
+pub struct UiPlugin;
+
+impl Plugin for UiPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup_ui).add_systems(
+            Update,
+            (keyboard_controls, update_ui_buttons, update_status_text),
+        );
+    }
+}
