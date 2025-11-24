@@ -29,6 +29,27 @@ impl PruCell {
     }
 }
 
+/// Dynamical properties for a PRU cell used by the macro-gravity integrator.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PruDynamics {
+    /// Effective inertial mass derived from UA.
+    pub mass: f32,
+    /// Current velocity in world units per second.
+    pub velocity: Vec3,
+    /// Current acceleration accumulated from gravity or other rules.
+    pub acceleration: Vec3,
+}
+
+impl Default for PruDynamics {
+    fn default() -> Self {
+        Self {
+            mass: 1.0,
+            velocity: Vec3::ZERO,
+            acceleration: Vec3::ZERO,
+        }
+    }
+}
+
 /// Derived scalar fields computed from a cell's locks and local neighborhood.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct DerivedFields {

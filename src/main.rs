@@ -11,7 +11,7 @@
 // Status: COMPLETE
 // =========================
 // PHASE 3: MACRO GRAVITY & LARGE-SCALE STRUCTURE
-// Status: TODO
+// Status: IN PROGRESS
 // =========================
 // PHASE 4: STARS, BLACK HOLES, GALAXIES
 // Status: TODO
