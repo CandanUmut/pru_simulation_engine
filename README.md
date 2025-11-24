@@ -4,7 +4,7 @@ A Bevy-based scientific visualization sandbox for exploring a **Precomputed Rela
 
 ## Phase status
 - **PHASE 1: Core Scaffold** — ✅ Complete (project scaffold, PRU lattice spawn, orbit camera, HUD + time controls).
-- **PHASE 2: Basic Fields & Overlays** — ⏳ TODO.
+- **PHASE 2: Basic Fields & Overlays** — 🚧 In Progress (density/curvature proxies, overlay toggles, metrics HUD).
 - **PHASE 3: Macro Gravity & Large-Scale Structure** — ⏳ TODO.
 - **PHASE 4: Stars, Black Holes, Galaxies** — ⏳ TODO.
 - **PHASE 5: Time Control, Presets & Experiment Management** — ⏳ TODO.
@@ -24,6 +24,8 @@ cargo run
   - `.` (period): single-step one tick.
   - `=` / `+`: speed up time scale.
   - `-`: slow down time scale.
+  - `D`: toggle density overlay.
+  - `C`: toggle curvature overlay.
 - **HUD Buttons**
   - Pause/Resume, Step, Slower, Faster mirror the keyboard shortcuts.
 
@@ -33,6 +35,14 @@ cargo run
 - Orbit camera with lighting suitable for inspecting the lattice.
 - HUD displaying tick counter, simulated time, time scale, and cell count with interactive time controls.
 - UI uses Bevy's embedded default font, keeping the repository free of binary asset files.
+
+## Early Phase 2 additions
+- Derived per-cell scalar fields:
+  - **local_density** based on UA mass lock.
+  - **curvature_proxy** derived from UB lock neighbors.
+- Overlay toggles to visualize density or curvature via color/emissive cues.
+- Metrics HUD listing average/min/max density and average curvature.
+- Tiny bar sparkline tracking average density over recent ticks.
 
 ## Extending the simulation
 Future phases will add derived scalar fields (density, curvature), overlays, gravitational dynamics, astrophysical archetypes, and experiment presets. Systems are separated into `pru/` (simulation core), `render/` (camera + lighting), and `ui/` (controls) for incremental growth.

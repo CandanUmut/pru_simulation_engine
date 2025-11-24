@@ -1,10 +1,15 @@
 use bevy::prelude::*;
 
 use crate::app::SimulationState;
-use crate::pru::universe::PruUniverse;
+use crate::pru::universe::{FieldMetrics, PruUniverse};
+
+pub const DENSITY_BAR_COUNT: usize = 40;
 
 #[derive(Component)]
 pub(crate) struct StatusText;
+
+#[derive(Component)]
+pub(crate) struct MetricsText;
 
 #[derive(Component)]
 pub(crate) struct PauseButton;
@@ -20,20 +25,70 @@ pub(crate) struct SpeedButton {
     delta: f32,
 }
 
-#[derive(Resource)]
+#[derive(Component)]
+pub(crate) struct DensityToggle;
+
+#[derive(Component)]
+pub(crate) struct DensityLabel;
+
+#[derive(Component)]
+pub(crate) struct CurvatureToggle;
+
+#[derive(Component)]
+pub(crate) struct CurvatureLabel;
+
+#[derive(Component)]
+pub(crate) struct DensityBar {
+    pub index: usize,
+}
+
+#[derive(Resource, Clone)]
 pub(crate) struct UiColorScheme {
     normal: Color,
     hovered: Color,
     pressed: Color,
 }
 
+/// Visualization toggles for scalar overlays.
+#[derive(Resource, Clone, Copy)]
+pub struct VisualModeSettings {
+    pub show_density_coloring: bool,
+    pub show_curvature_coloring: bool,
+}
+
+impl Default for VisualModeSettings {
+    fn default() -> Self {
+        Self {
+            show_density_coloring: true,
+            show_curvature_coloring: false,
+        }
+    }
+}
+
+impl VisualModeSettings {
+    pub fn toggle_density(&mut self) {
+        self.show_density_coloring = !self.show_density_coloring;
+        if self.show_density_coloring {
+            self.show_curvature_coloring = false;
+        }
+    }
+
+    pub fn toggle_curvature(&mut self) {
+        self.show_curvature_coloring = !self.show_curvature_coloring;
+        if self.show_curvature_coloring {
+            self.show_density_coloring = false;
+        }
+    }
+}
+
 /// Build the UI tree: status text + control buttons.
 pub fn setup_ui(mut commands: Commands) {
-    commands.insert_resource(UiColorScheme {
+    let colors = UiColorScheme {
         normal: Color::srgba(0.13, 0.15, 0.18, 0.8),
         hovered: Color::srgba(0.2, 0.22, 0.25, 0.9),
         pressed: Color::srgba(0.35, 0.35, 0.4, 0.95),
-    });
+    };
+    commands.insert_resource(colors.clone());
 
     commands
         .spawn(NodeBundle {
@@ -82,6 +137,28 @@ pub fn setup_ui(mut commands: Commands) {
                         StatusText,
                     ));
 
+                    column.spawn((
+                        TextBundle::from_sections([
+                            TextSection::new(
+                                "Derived Fields\n",
+                                TextStyle {
+                                    font_size: 18.0,
+                                    color: Color::srgb(0.9, 0.95, 1.0),
+                                    ..Default::default()
+                                },
+                            ),
+                            TextSection::new(
+                                "Metrics",
+                                TextStyle {
+                                    font_size: 14.0,
+                                    color: Color::srgb(0.8, 0.9, 1.0),
+                                    ..Default::default()
+                                },
+                            ),
+                        ]),
+                        MetricsText,
+                    ));
+
                     column
                         .spawn(NodeBundle {
                             style: Style {
@@ -93,10 +170,68 @@ pub fn setup_ui(mut commands: Commands) {
                             ..Default::default()
                         })
                         .with_children(|row| {
-                            spawn_button(row, "Pause", PauseButton, PauseLabel);
-                            spawn_button(row, "Step", StepButton, ());
-                            spawn_button(row, "Slower", SpeedButton { delta: -0.1 }, ());
-                            spawn_button(row, "Faster", SpeedButton { delta: 0.1 }, ());
+                            spawn_button(row, "Pause", PauseButton, PauseLabel, &colors);
+                            spawn_button(row, "Step", StepButton, (), &colors);
+                            spawn_button(row, "Slower", SpeedButton { delta: -0.1 }, (), &colors);
+                            spawn_button(row, "Faster", SpeedButton { delta: 0.1 }, (), &colors);
+                        });
+
+                    column
+                        .spawn(NodeBundle {
+                            style: Style {
+                                flex_direction: FlexDirection::Row,
+                                column_gap: Val::Px(8.0),
+                                ..Default::default()
+                            },
+                            background_color: Color::NONE.into(),
+                            ..Default::default()
+                        })
+                        .with_children(|row| {
+                            spawn_button(
+                                row,
+                                "Density Overlay",
+                                DensityToggle,
+                                DensityLabel,
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "Curvature Overlay",
+                                CurvatureToggle,
+                                CurvatureLabel,
+                                &colors,
+                            );
+                        });
+
+                    column
+                        .spawn(NodeBundle {
+                            style: Style {
+                                width: Val::Px(260.0),
+                                height: Val::Px(80.0),
+                                align_items: AlignItems::FlexEnd,
+                                column_gap: Val::Px(2.0),
+                                padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                                ..Default::default()
+                            },
+                            background_color: Color::srgba(0.02, 0.03, 0.05, 0.6).into(),
+                            ..Default::default()
+                        })
+                        .with_children(|graph| {
+                            for i in 0..DENSITY_BAR_COUNT {
+                                graph.spawn((
+                                    NodeBundle {
+                                        style: Style {
+                                            width: Val::Px(4.0),
+                                            height: Val::Px(6.0),
+                                            margin: UiRect::horizontal(Val::Px(1.0)),
+                                            ..Default::default()
+                                        },
+                                        background_color: Color::srgb(0.3, 0.5, 0.9).into(),
+                                        ..Default::default()
+                                    },
+                                    DensityBar { index: i },
+                                ));
+                            }
                         });
                 });
         });
@@ -107,13 +242,8 @@ fn spawn_button<C1: Component, C2: Bundle>(
     label: &str,
     component: C1,
     label_component: C2,
+    colors: &UiColorScheme,
 ) -> Entity {
-    let colors = UiColorScheme {
-        normal: Color::srgba(0.13, 0.15, 0.18, 0.8),
-        hovered: Color::srgba(0.2, 0.22, 0.25, 0.9),
-        pressed: Color::srgba(0.35, 0.35, 0.4, 0.95),
-    };
-
     parent
         .spawn((
             ButtonBundle {
@@ -145,7 +275,11 @@ fn spawn_button<C1: Component, C2: Bundle>(
 }
 
 /// Keyboard shortcuts mirroring the UI controls.
-pub fn keyboard_controls(mut sim_state: ResMut<SimulationState>, keys: Res<ButtonInput<KeyCode>>) {
+pub fn keyboard_controls(
+    mut sim_state: ResMut<SimulationState>,
+    mut modes: ResMut<VisualModeSettings>,
+    keys: Res<ButtonInput<KeyCode>>,
+) {
     if keys.just_pressed(KeyCode::Space) {
         sim_state.toggle();
     }
@@ -158,11 +292,18 @@ pub fn keyboard_controls(mut sim_state: ResMut<SimulationState>, keys: Res<Butto
     if keys.just_pressed(KeyCode::Equal) || keys.just_pressed(KeyCode::NumpadAdd) {
         sim_state.adjust_speed(0.1);
     }
+    if keys.just_pressed(KeyCode::KeyD) {
+        modes.toggle_density();
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        modes.toggle_curvature();
+    }
 }
 
 /// React to UI button interactions and update button visuals.
 pub fn update_ui_buttons(
     mut sim_state: ResMut<SimulationState>,
+    mut modes: ResMut<VisualModeSettings>,
     colors: Res<UiColorScheme>,
     mut interaction_query: Query<
         (
@@ -171,13 +312,22 @@ pub fn update_ui_buttons(
             Option<&SpeedButton>,
             Option<&PauseButton>,
             Option<&StepButton>,
+            Option<&DensityToggle>,
+            Option<&CurvatureToggle>,
         ),
         Changed<Interaction>,
     >,
     mut pause_label: Query<&mut Text, With<PauseLabel>>,
 ) {
-    for (interaction, mut color, speed_button, pause_button, step_button) in
-        interaction_query.iter_mut()
+    for (
+        interaction,
+        mut color,
+        speed_button,
+        pause_button,
+        step_button,
+        density_toggle,
+        curvature_toggle,
+    ) in interaction_query.iter_mut()
     {
         match *interaction {
             Interaction::Pressed => {
@@ -189,6 +339,10 @@ pub fn update_ui_buttons(
                     sim_state.adjust_speed(speed_button.delta);
                 } else if step_button.is_some() {
                     sim_state.step_once();
+                } else if density_toggle.is_some() {
+                    modes.toggle_density();
+                } else if curvature_toggle.is_some() {
+                    modes.toggle_curvature();
                 }
             }
             Interaction::Hovered => {
@@ -229,5 +383,66 @@ pub fn update_status_text(
             sim_state.time_scale,
             cell_count
         );
+    }
+}
+
+/// Show density/curvature metrics and a tiny sparkline style bar chart.
+pub fn update_metrics_text(
+    metrics: Res<FieldMetrics>,
+    mut text_query: Query<&mut Text, With<MetricsText>>,
+) {
+    if let Ok(mut text) = text_query.get_single_mut() {
+        text.sections[1].value = format!(
+            "Avg density: {:.3}\nMin/Max density: {:.3} / {:.3}\nAvg curvature: {:.3}",
+            metrics.avg_density, metrics.min_density, metrics.max_density, metrics.avg_curvature,
+        );
+    }
+}
+
+pub fn update_density_history_bars(
+    metrics: Res<FieldMetrics>,
+    mut bar_query: Query<(&mut Style, &mut BackgroundColor, &DensityBar)>,
+) {
+    if !metrics.is_changed() {
+        return;
+    }
+
+    let mut samples: Vec<f32> = metrics.density_history.iter().cloned().collect();
+    while samples.len() < DENSITY_BAR_COUNT {
+        samples.insert(0, 0.0);
+    }
+    let max_sample = samples
+        .iter()
+        .cloned()
+        .fold(0.0001f32, |a, b| a.max(b.abs()));
+
+    for (mut style, mut color, bar) in bar_query.iter_mut() {
+        if let Some(sample) = samples.iter().rev().nth(bar.index) {
+            let normalized = (sample / max_sample).clamp(0.0, 1.0);
+            style.height = Val::Px(6.0 + normalized * 60.0);
+            *color = Color::srgb(0.25 + normalized * 0.5, 0.6, 0.95).into();
+        }
+    }
+}
+
+pub fn update_overlay_labels(
+    modes: Res<VisualModeSettings>,
+    mut density_label: Query<&mut Text, With<DensityLabel>>,
+    mut curvature_label: Query<&mut Text, With<CurvatureLabel>>,
+) {
+    if let Ok(mut text) = density_label.get_single_mut() {
+        text.sections[0].value = if modes.show_density_coloring {
+            "Density Overlay (On)".to_string()
+        } else {
+            "Density Overlay (Off)".to_string()
+        };
+    }
+
+    if let Ok(mut text) = curvature_label.get_single_mut() {
+        text.sections[0].value = if modes.show_curvature_coloring {
+            "Curvature Overlay (On)".to_string()
+        } else {
+            "Curvature Overlay (Off)".to_string()
+        };
     }
 }

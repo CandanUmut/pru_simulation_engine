@@ -1,8 +1,9 @@
 use bevy::math::primitives::Sphere;
 use bevy::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use std::collections::VecDeque;
 
-use crate::pru::cell::PruCell;
+use crate::pru::cell::{DerivedFields, PruCell};
 
 /// Resource describing the high-level PRU universe configuration.
 #[derive(Resource, Clone)]
@@ -25,6 +26,30 @@ impl PruUniverse {
             spacing,
             base_dt,
             total_cells: 0,
+        }
+    }
+}
+
+/// Rolling metrics gathered from the derived field calculations.
+#[derive(Resource)]
+pub struct FieldMetrics {
+    pub avg_density: f32,
+    pub min_density: f32,
+    pub max_density: f32,
+    pub avg_curvature: f32,
+    pub density_history: VecDeque<f32>,
+    pub max_history: usize,
+}
+
+impl Default for FieldMetrics {
+    fn default() -> Self {
+        Self {
+            avg_density: 0.0,
+            min_density: 0.0,
+            max_density: 0.0,
+            avg_curvature: 0.0,
+            density_history: VecDeque::from(vec![0.0; 32]),
+            max_history: 64,
         }
     }
 }
@@ -55,7 +80,8 @@ pub fn setup_universe(
                 let ua_mass_lock: f64 = rng.gen_range(0.4..1.6);
                 let ub_geom_lock: f64 = rng.gen_range(-1.0..1.0);
 
-                let cell = PruCell::new(position, ua_mass_lock, ub_geom_lock);
+                let grid_coords = UVec3::new(x, y, z);
+                let cell = PruCell::new(position, grid_coords, ua_mass_lock, ub_geom_lock);
 
                 let material_color = color_from_locks(ua_mass_lock, ub_geom_lock);
                 let material = materials.add(StandardMaterial {
@@ -73,6 +99,7 @@ pub fn setup_universe(
                         ..Default::default()
                     },
                     cell,
+                    DerivedFields::default(),
                     Name::new(format!("PRU Cell ({x}, {y}, {z})")),
                 ));
 
@@ -93,4 +120,101 @@ fn color_from_locks(ua: f64, ub: f64) -> Color {
     let g = 0.2 + 0.6 * (1.0 - geom);
     let b = 0.4 + 0.5 * (1.0 - mass * 0.5);
     Color::srgb(r.min(1.0), g.min(1.0), b.min(1.0))
+}
+
+/// Compute per-cell derived fields (density & curvature proxies) and update rolling metrics.
+pub fn compute_derived_fields(
+    universe: Res<PruUniverse>,
+    cell_query: Query<&PruCell>,
+    mut derived_query: Query<(&PruCell, &mut DerivedFields)>,
+    mut metrics: ResMut<FieldMetrics>,
+) {
+    let dims = universe.grid_dimensions;
+    let total_cells = (dims.x * dims.y * dims.z) as usize;
+    if total_cells == 0 {
+        return;
+    }
+
+    let mut ua_field = vec![0.0f32; total_cells];
+    let mut ub_field = vec![0.0f32; total_cells];
+
+    for cell in cell_query.iter() {
+        let idx = grid_index(cell.grid_coords, dims);
+        ua_field[idx] = cell.ua_mass_lock as f32;
+        ub_field[idx] = cell.ub_geom_lock as f32;
+    }
+
+    let mut density_sum = 0.0;
+    let mut curvature_sum = 0.0;
+    let mut min_density = f32::MAX;
+    let mut max_density = f32::MIN;
+
+    for (cell, mut derived) in derived_query.iter_mut() {
+        let idx = grid_index(cell.grid_coords, dims);
+        let ua = ua_field[idx];
+        derived.local_density = ua.max(0.0);
+
+        let neighbor_avg = average_neighbors(cell.grid_coords, dims, &ub_field);
+        let curvature = ub_field[idx] - neighbor_avg;
+        derived.curvature_proxy = curvature;
+
+        density_sum += derived.local_density;
+        curvature_sum += curvature.abs();
+        min_density = min_density.min(derived.local_density);
+        max_density = max_density.max(derived.local_density);
+    }
+
+    let total_cells = derived_query.iter().count() as f32;
+    if total_cells > 0.0 {
+        metrics.avg_density = density_sum / total_cells;
+        metrics.min_density = min_density;
+        metrics.max_density = max_density;
+        metrics.avg_curvature = curvature_sum / total_cells;
+
+        let avg_density = metrics.avg_density;
+        metrics.density_history.push_back(avg_density);
+        while metrics.density_history.len() > metrics.max_history {
+            metrics.density_history.pop_front();
+        }
+    }
+}
+
+fn grid_index(coords: UVec3, dims: UVec3) -> usize {
+    (coords.x * dims.y * dims.z + coords.y * dims.z + coords.z) as usize
+}
+
+fn average_neighbors(coords: UVec3, dims: UVec3, ub_field: &[f32]) -> f32 {
+    let deltas = [
+        IVec3::new(1, 0, 0),
+        IVec3::new(-1, 0, 0),
+        IVec3::new(0, 1, 0),
+        IVec3::new(0, -1, 0),
+        IVec3::new(0, 0, 1),
+        IVec3::new(0, 0, -1),
+    ];
+
+    let mut sum = 0.0;
+    let mut count = 0.0;
+
+    for delta in deltas {
+        let neighbor = coords.as_ivec3() + delta;
+        if neighbor.x >= 0
+            && neighbor.y >= 0
+            && neighbor.z >= 0
+            && neighbor.x < dims.x as i32
+            && neighbor.y < dims.y as i32
+            && neighbor.z < dims.z as i32
+        {
+            let n_coords = UVec3::new(neighbor.x as u32, neighbor.y as u32, neighbor.z as u32);
+            let idx = grid_index(n_coords, dims);
+            sum += ub_field[idx];
+            count += 1.0;
+        }
+    }
+
+    if count > 0.0 {
+        sum / count
+    } else {
+        0.0
+    }
 }
