@@ -8,7 +8,7 @@
 // Status: COMPLETE
 // =========================
 // PHASE 2: BASIC FIELDS & OVERLAYS
-// Status: TODO
+// Status: IN PROGRESS
 // =========================
 // PHASE 3: MACRO GRAVITY & LARGE-SCALE STRUCTURE
 // Status: TODO
