@@ -1,0 +1,20 @@
+[package]
+name = "pru_simulation_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.14", default-features = false, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_render",
+    "bevy_pbr",
+    "bevy_winit",
+    "default_font",
+    "png",
+    "bevy_ui",
+    "bevy_text",
+    "bevy_gltf",
+    "x11",
+] }
+rand = "0.8"
