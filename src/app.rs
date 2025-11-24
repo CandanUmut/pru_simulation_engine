@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
 use crate::pru::cell::DerivedFields;
+use crate::pru::gravity::{
+    compute_energy_metrics, simulate_gravity_step, GravityParams, SimulationEnergy,
+};
 use crate::pru::universe::{compute_derived_fields, setup_universe, FieldMetrics};
 use crate::render::RenderPlugin;
 use crate::ui::controls::VisualModeSettings;
@@ -21,6 +24,8 @@ pub struct SimulationState {
     pub accumulated_time: f32,
     /// Total simulated time in seconds.
     pub simulation_time: f32,
+    /// Ticks that should be simulated by downstream systems this frame.
+    pub pending_steps: u32,
 }
 
 impl Default for SimulationState {
@@ -32,6 +37,7 @@ impl Default for SimulationState {
             dt: 1.0 / 60.0,
             accumulated_time: 0.0,
             simulation_time: 0.0,
+            pending_steps: 0,
         }
     }
 }
@@ -46,11 +52,19 @@ impl SimulationState {
     pub fn step_once(&mut self) {
         self.tick += 1;
         self.simulation_time += self.dt;
+        self.pending_steps += 1;
     }
 
     /// Adjust time scale while keeping it within a reasonable range.
     pub fn adjust_speed(&mut self, delta: f32) {
         self.time_scale = (self.time_scale + delta).clamp(0.1, 10.0);
+    }
+
+    /// Consume any pending steps, returning how many fixed ticks should be simulated.
+    pub fn take_pending_steps(&mut self) -> u32 {
+        let steps = self.pending_steps;
+        self.pending_steps = 0;
+        steps
     }
 }
 
@@ -63,7 +77,9 @@ impl Plugin for PruSimulationPlugin {
             Update,
             (
                 advance_simulation_time,
+                simulate_gravity_step.after(advance_simulation_time),
                 compute_derived_fields,
+                compute_energy_metrics.after(simulate_gravity_step),
                 update_cell_materials.after(compute_derived_fields),
                 animate_cells.after(update_cell_materials),
             ),
@@ -82,6 +98,7 @@ fn advance_simulation_time(time: Res<Time>, mut sim_state: ResMut<SimulationStat
         sim_state.accumulated_time -= sim_state.dt;
         sim_state.tick += 1;
         sim_state.simulation_time += sim_state.dt;
+        sim_state.pending_steps += 1;
     }
 }
 
@@ -92,10 +109,10 @@ fn animate_cells(
 ) {
     let elapsed = time.elapsed_seconds();
     for (cell, derived, mut transform) in query.iter_mut() {
-        let base_scale = 0.12 + derived.local_density * 0.04;
+        let base_scale = 0.1 + derived.local_density * 0.03;
         let curvature_amp = (derived.curvature_proxy.abs() * 0.2).min(0.08);
         let pulse = (elapsed * 0.7 + cell.ub_geom_lock as f32).sin() * 0.025;
-        transform.scale = Vec3::splat((base_scale + curvature_amp + pulse).max(0.02));
+        transform.scale = Vec3::splat((base_scale + curvature_amp + pulse).clamp(0.02, 0.5));
     }
 }
 
@@ -133,7 +150,7 @@ fn update_cell_materials(
 }
 
 fn density_color(density: f32) -> Color {
-    let norm = (density / 1.8).clamp(0.0, 1.0);
+    let norm = (density / 3.5).clamp(0.0, 1.0);
     let cold = Color::srgb(0.2, 0.4, 0.9);
     let warm = Color::srgb(1.0, 0.9, 0.2);
     lerp_color(cold, warm, norm)
@@ -171,6 +188,8 @@ pub fn run_app() {
     App::new()
         .insert_resource(SimulationState::default())
         .init_resource::<FieldMetrics>()
+        .init_resource::<GravityParams>()
+        .init_resource::<SimulationEnergy>()
         .init_resource::<VisualModeSettings>()
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
         .insert_resource(AmbientLight {

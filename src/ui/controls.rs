@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::app::SimulationState;
+use crate::pru::gravity::{GravityParams, SimulationEnergy};
 use crate::pru::universe::{FieldMetrics, PruUniverse};
 
 pub const DENSITY_BAR_COUNT: usize = 40;
@@ -10,6 +11,9 @@ pub(crate) struct StatusText;
 
 #[derive(Component)]
 pub(crate) struct MetricsText;
+
+#[derive(Component)]
+pub(crate) struct EnergyText;
 
 #[derive(Component)]
 pub(crate) struct PauseButton;
@@ -36,6 +40,30 @@ pub(crate) struct CurvatureToggle;
 
 #[derive(Component)]
 pub(crate) struct CurvatureLabel;
+
+#[derive(Component)]
+pub(crate) struct GravityToggle;
+
+#[derive(Component)]
+pub(crate) struct GravityLabel;
+
+#[derive(Component)]
+pub(crate) struct GravityParamsText;
+
+#[derive(Component)]
+pub(crate) struct GravityAdjustButton {
+    delta: f32,
+}
+
+#[derive(Component)]
+pub(crate) struct DampingAdjustButton {
+    delta: f32,
+}
+
+#[derive(Component)]
+pub(crate) struct SofteningAdjustButton {
+    delta: f32,
+}
 
 #[derive(Component)]
 pub(crate) struct DensityBar {
@@ -159,6 +187,28 @@ pub fn setup_ui(mut commands: Commands) {
                         MetricsText,
                     ));
 
+                    column.spawn((
+                        TextBundle::from_sections([
+                            TextSection::new(
+                                "Energy Diagnostics\n",
+                                TextStyle {
+                                    font_size: 18.0,
+                                    color: Color::srgb(0.9, 0.95, 1.0),
+                                    ..Default::default()
+                                },
+                            ),
+                            TextSection::new(
+                                "Energy values",
+                                TextStyle {
+                                    font_size: 14.0,
+                                    color: Color::srgb(0.8, 0.9, 1.0),
+                                    ..Default::default()
+                                },
+                            ),
+                        ]),
+                        EnergyText,
+                    ));
+
                     column
                         .spawn(NodeBundle {
                             style: Style {
@@ -202,6 +252,74 @@ pub fn setup_ui(mut commands: Commands) {
                                 &colors,
                             );
                         });
+
+                    column
+                        .spawn(NodeBundle {
+                            style: Style {
+                                flex_direction: FlexDirection::Row,
+                                column_gap: Val::Px(8.0),
+                                ..Default::default()
+                            },
+                            background_color: Color::NONE.into(),
+                            ..Default::default()
+                        })
+                        .with_children(|row| {
+                            spawn_button(row, "Gravity", GravityToggle, GravityLabel, &colors);
+                            spawn_button(
+                                row,
+                                "G -",
+                                GravityAdjustButton { delta: -0.05 },
+                                (),
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "G +",
+                                GravityAdjustButton { delta: 0.05 },
+                                (),
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "Damp -",
+                                DampingAdjustButton { delta: -0.002 },
+                                (),
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "Damp +",
+                                DampingAdjustButton { delta: 0.002 },
+                                (),
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "Soft -",
+                                SofteningAdjustButton { delta: -0.02 },
+                                (),
+                                &colors,
+                            );
+                            spawn_button(
+                                row,
+                                "Soft +",
+                                SofteningAdjustButton { delta: 0.02 },
+                                (),
+                                &colors,
+                            );
+                        });
+
+                    column.spawn((
+                        TextBundle::from_section(
+                            "Gravity Params",
+                            TextStyle {
+                                font_size: 14.0,
+                                color: Color::srgb(0.8, 0.9, 1.0),
+                                ..Default::default()
+                            },
+                        ),
+                        GravityParamsText,
+                    ));
 
                     column
                         .spawn(NodeBundle {
@@ -278,6 +396,7 @@ fn spawn_button<C1: Component, C2: Bundle>(
 pub fn keyboard_controls(
     mut sim_state: ResMut<SimulationState>,
     mut modes: ResMut<VisualModeSettings>,
+    mut gravity: ResMut<GravityParams>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
     if keys.just_pressed(KeyCode::Space) {
@@ -298,12 +417,34 @@ pub fn keyboard_controls(
     if keys.just_pressed(KeyCode::KeyC) {
         modes.toggle_curvature();
     }
+    if keys.just_pressed(KeyCode::KeyG) {
+        gravity.enabled = !gravity.enabled;
+    }
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        gravity.g_effective = (gravity.g_effective - 0.05).max(0.0);
+    }
+    if keys.just_pressed(KeyCode::BracketRight) {
+        gravity.g_effective = (gravity.g_effective + 0.05).clamp(0.0, 5.0);
+    }
+    if keys.just_pressed(KeyCode::Comma) {
+        gravity.damping = (gravity.damping - 0.002).max(0.0);
+    }
+    if keys.just_pressed(KeyCode::Slash) {
+        gravity.damping = (gravity.damping + 0.002).min(1.0);
+    }
+    if keys.just_pressed(KeyCode::Semicolon) {
+        gravity.softening_length = (gravity.softening_length - 0.02).max(0.01);
+    }
+    if keys.just_pressed(KeyCode::Quote) {
+        gravity.softening_length = (gravity.softening_length + 0.02).min(2.0);
+    }
 }
 
 /// React to UI button interactions and update button visuals.
 pub fn update_ui_buttons(
     mut sim_state: ResMut<SimulationState>,
     mut modes: ResMut<VisualModeSettings>,
+    mut gravity: ResMut<GravityParams>,
     colors: Res<UiColorScheme>,
     mut interaction_query: Query<
         (
@@ -314,6 +455,10 @@ pub fn update_ui_buttons(
             Option<&StepButton>,
             Option<&DensityToggle>,
             Option<&CurvatureToggle>,
+            Option<&GravityToggle>,
+            Option<&GravityAdjustButton>,
+            Option<&DampingAdjustButton>,
+            Option<&SofteningAdjustButton>,
         ),
         Changed<Interaction>,
     >,
@@ -327,6 +472,10 @@ pub fn update_ui_buttons(
         step_button,
         density_toggle,
         curvature_toggle,
+        gravity_toggle,
+        gravity_adjust,
+        damping_adjust,
+        softening_adjust,
     ) in interaction_query.iter_mut()
     {
         match *interaction {
@@ -343,6 +492,15 @@ pub fn update_ui_buttons(
                     modes.toggle_density();
                 } else if curvature_toggle.is_some() {
                     modes.toggle_curvature();
+                } else if gravity_toggle.is_some() {
+                    gravity.enabled = !gravity.enabled;
+                } else if let Some(adj) = gravity_adjust {
+                    gravity.g_effective = (gravity.g_effective + adj.delta).clamp(0.0, 5.0);
+                } else if let Some(adj) = damping_adjust {
+                    gravity.damping = (gravity.damping + adj.delta).clamp(0.0, 1.0);
+                } else if let Some(adj) = softening_adjust {
+                    gravity.softening_length =
+                        (gravity.softening_length + adj.delta).clamp(0.01, 3.0);
                 }
             }
             Interaction::Hovered => {
@@ -444,5 +602,45 @@ pub fn update_overlay_labels(
         } else {
             "Curvature Overlay (Off)".to_string()
         };
+    }
+}
+
+/// Update on-screen gravity toggles and parameter readout.
+pub fn update_gravity_labels(
+    params: Res<GravityParams>,
+    mut gravity_label: Query<&mut Text, With<GravityLabel>>,
+    mut params_text: Query<&mut Text, With<GravityParamsText>>,
+) {
+    if let Ok(mut text) = gravity_label.get_single_mut() {
+        text.sections[0].value = if params.enabled {
+            "Gravity (On)".to_string()
+        } else {
+            "Gravity (Off)".to_string()
+        };
+    }
+
+    if let Ok(mut text) = params_text.get_single_mut() {
+        text.sections[0].value = format!(
+            "G_eff: {:.2}\nSoftening: {:.3}\nDamping: {:.4}\nMax Accel: {:.0}",
+            params.g_effective, params.softening_length, params.damping, params.max_acceleration
+        );
+    }
+}
+
+/// Show kinetic/potential/total energy and relative drift.
+pub fn update_energy_text(
+    energy: Res<SimulationEnergy>,
+    mut text_query: Query<&mut Text, With<EnergyText>>,
+) {
+    if let Ok(mut text) = text_query.get_single_mut() {
+        let drift_str = energy
+            .relative_drift
+            .map(|d| format!("{:.2e}", d))
+            .unwrap_or_else(|| "n/a".to_string());
+
+        text.sections[1].value = format!(
+            "Kinetic: {:>10.4}\nPotential: {:>10.4}\nTotal: {:>10.4}\nΔE/E0: {}",
+            energy.kinetic, energy.potential, energy.total, drift_str
+        );
     }
 }

@@ -6,5 +6,6 @@
 //! enabling deterministic, reproducible simulations.
 
 pub mod cell;
+pub mod gravity;
 pub mod rules;
 pub mod universe;

@@ -3,7 +3,8 @@ use bevy::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::VecDeque;
 
-use crate::pru::cell::{DerivedFields, PruCell};
+use crate::pru::cell::{DerivedFields, PruCell, PruDynamics};
+use crate::pru::gravity::GravityParams;
 
 /// Resource describing the high-level PRU universe configuration.
 #[derive(Resource, Clone)]
@@ -16,6 +17,8 @@ pub struct PruUniverse {
     pub base_dt: f32,
     /// Aggregate count of spawned cells.
     pub total_cells: usize,
+    /// Whether macro-gravity is enabled for dynamic motion.
+    pub gravity_enabled: bool,
 }
 
 impl PruUniverse {
@@ -26,6 +29,7 @@ impl PruUniverse {
             spacing,
             base_dt,
             total_cells: 0,
+            gravity_enabled: true,
         }
     }
 }
@@ -59,6 +63,7 @@ pub fn setup_universe(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut gravity: ResMut<GravityParams>,
 ) {
     // Configure a modest grid that is fast to render while showcasing the lattice.
     let grid_dimensions = UVec3::new(10, 10, 10);
@@ -67,6 +72,7 @@ pub fn setup_universe(
 
     let mut universe = PruUniverse::new(grid_dimensions, spacing, base_dt);
     commands.insert_resource(universe.clone());
+    gravity.enabled = universe.gravity_enabled;
 
     let mut rng = StdRng::seed_from_u64(42);
     let cell_mesh = meshes.add(Mesh::from(Sphere { radius: 0.12 }));
@@ -82,6 +88,17 @@ pub fn setup_universe(
 
                 let grid_coords = UVec3::new(x, y, z);
                 let cell = PruCell::new(position, grid_coords, ua_mass_lock, ub_geom_lock);
+                let mass = (ua_mass_lock as f32).max(0.05);
+                let velocity = Vec3::new(
+                    rng.gen_range(-0.05..0.05),
+                    rng.gen_range(-0.05..0.05),
+                    rng.gen_range(-0.05..0.05),
+                );
+                let dynamics = PruDynamics {
+                    mass,
+                    velocity,
+                    ..Default::default()
+                };
 
                 let material_color = color_from_locks(ua_mass_lock, ub_geom_lock);
                 let material = materials.add(StandardMaterial {
@@ -101,6 +118,7 @@ pub fn setup_universe(
                     cell,
                     DerivedFields::default(),
                     Name::new(format!("PRU Cell ({x}, {y}, {z})")),
+                    dynamics,
                 ));
 
                 universe.total_cells += 1;
@@ -125,23 +143,20 @@ fn color_from_locks(ua: f64, ub: f64) -> Color {
 /// Compute per-cell derived fields (density & curvature proxies) and update rolling metrics.
 pub fn compute_derived_fields(
     universe: Res<PruUniverse>,
-    cell_query: Query<&PruCell>,
+    cell_query: Query<(&PruCell, &PruDynamics)>,
     mut derived_query: Query<(&PruCell, &mut DerivedFields)>,
     mut metrics: ResMut<FieldMetrics>,
 ) {
-    let dims = universe.grid_dimensions;
-    let total_cells = (dims.x * dims.y * dims.z) as usize;
-    if total_cells == 0 {
+    let smoothing_radius = universe.spacing * 2.5;
+    let smoothing_inv = 1.0 / (smoothing_radius * 0.5).max(0.0001);
+
+    let cell_data: Vec<(Vec3, f32, f32)> = cell_query
+        .iter()
+        .map(|(cell, dyn_state)| (cell.position, dyn_state.mass, cell.ub_geom_lock as f32))
+        .collect();
+
+    if cell_data.is_empty() {
         return;
-    }
-
-    let mut ua_field = vec![0.0f32; total_cells];
-    let mut ub_field = vec![0.0f32; total_cells];
-
-    for cell in cell_query.iter() {
-        let idx = grid_index(cell.grid_coords, dims);
-        ua_field[idx] = cell.ua_mass_lock as f32;
-        ub_field[idx] = cell.ub_geom_lock as f32;
     }
 
     let mut density_sum = 0.0;
@@ -150,16 +165,29 @@ pub fn compute_derived_fields(
     let mut max_density = f32::MIN;
 
     for (cell, mut derived) in derived_query.iter_mut() {
-        let idx = grid_index(cell.grid_coords, dims);
-        let ua = ua_field[idx];
-        derived.local_density = ua.max(0.0);
+        let mut density = 0.0f32;
+        let mut ub_weighted = 0.0f32;
+        let mut ub_weight_sum = 0.0f32;
 
-        let neighbor_avg = average_neighbors(cell.grid_coords, dims, &ub_field);
-        let curvature = ub_field[idx] - neighbor_avg;
-        derived.curvature_proxy = curvature;
+        for (pos, mass, ub) in cell_data.iter() {
+            let r = (*pos - cell.position).length();
+            let weight = (-0.5 * (r * smoothing_inv).powi(2)).exp();
+            density += *mass * weight;
+            if r > 0.0 {
+                ub_weighted += *ub * weight;
+                ub_weight_sum += weight;
+            }
+        }
+
+        derived.local_density = density.max(0.0);
+        derived.curvature_proxy = if ub_weight_sum > 0.0 {
+            (cell.ub_geom_lock as f32) - ub_weighted / ub_weight_sum
+        } else {
+            0.0
+        };
 
         density_sum += derived.local_density;
-        curvature_sum += curvature.abs();
+        curvature_sum += derived.curvature_proxy.abs();
         min_density = min_density.min(derived.local_density);
         max_density = max_density.max(derived.local_density);
     }
@@ -176,45 +204,5 @@ pub fn compute_derived_fields(
         while metrics.density_history.len() > metrics.max_history {
             metrics.density_history.pop_front();
         }
-    }
-}
-
-fn grid_index(coords: UVec3, dims: UVec3) -> usize {
-    (coords.x * dims.y * dims.z + coords.y * dims.z + coords.z) as usize
-}
-
-fn average_neighbors(coords: UVec3, dims: UVec3, ub_field: &[f32]) -> f32 {
-    let deltas = [
-        IVec3::new(1, 0, 0),
-        IVec3::new(-1, 0, 0),
-        IVec3::new(0, 1, 0),
-        IVec3::new(0, -1, 0),
-        IVec3::new(0, 0, 1),
-        IVec3::new(0, 0, -1),
-    ];
-
-    let mut sum = 0.0;
-    let mut count = 0.0;
-
-    for delta in deltas {
-        let neighbor = coords.as_ivec3() + delta;
-        if neighbor.x >= 0
-            && neighbor.y >= 0
-            && neighbor.z >= 0
-            && neighbor.x < dims.x as i32
-            && neighbor.y < dims.y as i32
-            && neighbor.z < dims.z as i32
-        {
-            let n_coords = UVec3::new(neighbor.x as u32, neighbor.y as u32, neighbor.z as u32);
-            let idx = grid_index(n_coords, dims);
-            sum += ub_field[idx];
-            count += 1.0;
-        }
-    }
-
-    if count > 0.0 {
-        sum / count
-    } else {
-        0.0
     }
 }
