@@ -4,7 +4,7 @@ A Bevy-based scientific visualization sandbox for exploring a **Precomputed Rela
 
 ## Phase status
 - **PHASE 1: Core Scaffold** — ✅ Complete (project scaffold, PRU lattice spawn, orbit camera, HUD + time controls).
-- **PHASE 2: Basic Fields & Overlays** — 🚧 In Progress (density/curvature proxies, overlay toggles, metrics HUD).
+- **PHASE 2: Basic Fields & Overlays** — ✅ Complete (density/curvature proxies, overlay toggles, metrics HUD).
 - **PHASE 3: Macro Gravity & Large-Scale Structure** — ⏳ TODO.
 - **PHASE 4: Stars, Black Holes, Galaxies** — ⏳ TODO.
 - **PHASE 5: Time Control, Presets & Experiment Management** — ⏳ TODO.
@@ -36,7 +36,7 @@ cargo run
 - HUD displaying tick counter, simulated time, time scale, and cell count with interactive time controls.
 - UI uses Bevy's embedded default font, keeping the repository free of binary asset files.
 
-## Early Phase 2 additions
+## Phase 2 additions
 - Derived per-cell scalar fields:
   - **local_density** based on UA mass lock.
   - **curvature_proxy** derived from UB lock neighbors.
