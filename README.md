@@ -6,7 +6,7 @@ A Bevy-based scientific visualization sandbox for exploring a **Precomputed Rela
 - **PHASE 1: Core Scaffold** — ✅ Complete (project scaffold, PRU lattice spawn, orbit camera, HUD + time controls).
 - **PHASE 2: Basic Fields & Overlays** — ✅ Complete (density/curvature proxies, overlay toggles, metrics HUD).
 - **PHASE 3: Macro Gravity & Large-Scale Structure** — ⏳ In progress (naive gravity, motion, energy HUD).
-- **PHASE 4: Stars, Black Holes, Galaxies** — ⏳ TODO.
+- **PHASE 4: Stars, Black Holes, Galaxies & Astro Agents** — ⏳ In progress (formation rules, galaxy agents, agent panel).
 - **PHASE 5: Time Control, Presets & Experiment Management** — ⏳ TODO.
 
 ## How to run
@@ -56,6 +56,11 @@ cargo run
 - HUD energy diagnostics (kinetic, potential, total, ΔE/E0) for monitoring numerical drift.
 - Interactive gravity controls via keyboard or HUD buttons (toggle, adjust G, damping, and softening).
 - Known limitation: the naive baseline remains O(N²) for direct comparisons; the relational lattice mode uses a fixed stencil for better scaling but is still a first-pass approximation.
+
+## Phase 4 additions
+- Field-driven formation of **stars**, **black holes**, and coarse **galaxy halos** derived from density/curvature thresholds.
+- **Astro Agents** that track galaxies, count nearby stars/black holes, and emit concise reports when mass or membership changes.
+- An **Agents Panel** in the UI listing active agents alongside the latest high-level reports, so you can monitor the simulation without scanning every cell.
 
 ## Extending the simulation
 Future phases will add derived scalar fields (density, curvature), overlays, gravitational dynamics, astrophysical archetypes, and experiment presets. Systems are separated into `pru/` (simulation core), `render/` (camera + lighting), and `ui/` (controls) for incremental growth.

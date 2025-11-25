@@ -13,13 +13,15 @@
 // PHASE 3: MACRO GRAVITY & LARGE-SCALE STRUCTURE
 // Status: IN PROGRESS
 // =========================
-// PHASE 4: STARS, BLACK HOLES, GALAXIES
-// Status: TODO
+// PHASE 4: STARS, BLACK HOLES, GALAXIES & ASTRO AGENTS
+// Status: IN PROGRESS
 // =========================
 // PHASE 5: TIME CONTROL, PRESETS & EXPERIMENT MANAGEMENT
 // Status: TODO
 
+mod agents;
 mod app;
+mod astro;
 mod pru;
 mod render;
 mod ui;

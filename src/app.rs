@@ -1,3 +1,4 @@
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::prelude::*;
 
 use crate::pru::cell::DerivedFields;
@@ -5,10 +6,11 @@ use crate::pru::gravity::{
     compute_energy_metrics, simulate_gravity_step, GravityParams, SimulationEnergy,
 };
 use crate::pru::gravity_relational::initialize_relational_kernel;
-use crate::pru::universe::{compute_derived_fields, setup_universe, FieldMetrics};
+use crate::pru::universe::{compute_derived_fields, setup_universe, FieldMetrics, PruUniverse};
 use crate::render::RenderPlugin;
 use crate::ui::controls::VisualModeSettings;
 use crate::ui::UiPlugin;
+use crate::{agents::AgentsPlugin, astro::AstroPlugin};
 
 /// Global simulation state controlling the PRU tick loop and time scaling.
 #[derive(Resource, Clone, Copy)]
@@ -74,24 +76,26 @@ pub struct PruSimulationPlugin;
 
 impl Plugin for PruSimulationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            (
-                setup_universe,
-                initialize_relational_kernel.after(setup_universe),
-            ),
-        )
-        .add_systems(
-            Update,
-            (
-                advance_simulation_time,
-                simulate_gravity_step.after(advance_simulation_time),
-                compute_derived_fields,
-                compute_energy_metrics.after(simulate_gravity_step),
-                update_cell_materials.after(compute_derived_fields),
-                animate_cells.after(update_cell_materials),
-            ),
-        );
+        app.add_systems(Startup, (setup_universe,))
+            .add_systems(
+                Update,
+                initialize_relational_kernel
+                    .run_if(resource_exists::<PruUniverse>)
+                    .run_if(not(resource_exists::<
+                        crate::pru::gravity_relational::RelationalKernel,
+                    >)),
+            )
+            .add_systems(
+                Update,
+                (
+                    advance_simulation_time,
+                    simulate_gravity_step.after(advance_simulation_time),
+                    compute_derived_fields,
+                    compute_energy_metrics.after(simulate_gravity_step),
+                    update_cell_materials.after(compute_derived_fields),
+                    animate_cells.after(update_cell_materials),
+                ),
+            );
     }
 }
 
@@ -211,6 +215,12 @@ pub fn run_app() {
             }),
             ..Default::default()
         }))
-        .add_plugins((RenderPlugin, UiPlugin, PruSimulationPlugin))
+        .add_plugins((
+            RenderPlugin,
+            UiPlugin,
+            PruSimulationPlugin,
+            AstroPlugin,
+            AgentsPlugin,
+        ))
         .run();
 }
