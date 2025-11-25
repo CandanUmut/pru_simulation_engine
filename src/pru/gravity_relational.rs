@@ -55,19 +55,9 @@ impl RelationalKernel {
 /// This system keeps the kernel in a resource so the gravity step can run with
 /// only neighbor lookups and table reads. It mirrors the PRU thesis idea of a
 /// precomputed interaction graph instead of a per-frame all-to-all solve.
-pub fn initialize_relational_kernel(
-    mut commands: Commands,
-    universe: Option<Res<PruUniverse>>,
-    existing_kernel: Option<Res<RelationalKernel>>,
-) {
-    if existing_kernel.is_some() {
-        return;
-    }
-
-    if let Some(universe) = universe {
-        let kernel = RelationalKernel::new(universe.spacing);
-        commands.insert_resource(kernel);
-    }
+pub fn initialize_relational_kernel(mut commands: Commands, universe: Res<PruUniverse>) {
+    let kernel = RelationalKernel::new(universe.spacing);
+    commands.insert_resource(kernel);
 }
 
 /// Compute gravity using the precomputed kernel and the current mass density
