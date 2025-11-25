@@ -26,8 +26,9 @@ cargo run
   - `-`: slow down time scale.
   - `D`: toggle density overlay.
   - `C`: toggle curvature overlay.
-  - `G`: toggle gravity on/off.
-  - `[` / `]`: decrease/increase effective gravity.
+- `G`: toggle gravity on/off.
+- `M`: toggle between the naive N-body baseline and the relational lattice gravity mode.
+- `[` / `]`: decrease/increase effective gravity.
   - `,` / `/`: decrease/increase damping.
   - `;` / `'`: decrease/increase softening length.
 - **HUD Buttons**
@@ -50,11 +51,11 @@ cargo run
 - Tiny bar sparkline tracking average density over recent ticks.
 
 ## Phase 3 additions
-- Naive pairwise macro-gravity that moves PRU cells using UA-derived mass and simple damping/softening for stability.
+- Naive pairwise macro-gravity baseline and a relational lattice gravity mode driven by a precomputed neighbor kernel.
 - Dynamic positions feed back into density/curvature overlays so clustering and voids become visible in real time.
 - HUD energy diagnostics (kinetic, potential, total, ΔE/E0) for monitoring numerical drift.
 - Interactive gravity controls via keyboard or HUD buttons (toggle, adjust G, damping, and softening).
-- Known limitation: current gravity uses an O(N²) pairwise solver suited for modest cell counts.
+- Known limitation: the naive baseline remains O(N²) for direct comparisons; the relational lattice mode uses a fixed stencil for better scaling but is still a first-pass approximation.
 
 ## Extending the simulation
 Future phases will add derived scalar fields (density, curvature), overlays, gravitational dynamics, astrophysical archetypes, and experiment presets. Systems are separated into `pru/` (simulation core), `render/` (camera + lighting), and `ui/` (controls) for incremental growth.

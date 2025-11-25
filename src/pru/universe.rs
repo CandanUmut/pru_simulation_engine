@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::VecDeque;
 
+use crate::app::SimulationState;
 use crate::pru::cell::{DerivedFields, PruCell, PruDynamics};
 use crate::pru::gravity::GravityParams;
 
@@ -13,8 +14,6 @@ pub struct PruUniverse {
     pub grid_dimensions: UVec3,
     /// World-space spacing between adjacent cells.
     pub spacing: f32,
-    /// Base fixed delta time per tick (seconds).
-    pub base_dt: f32,
     /// Aggregate count of spawned cells.
     pub total_cells: usize,
     /// Whether macro-gravity is enabled for dynamic motion.
@@ -23,11 +22,10 @@ pub struct PruUniverse {
 
 impl PruUniverse {
     /// Construct a new universe description with zeroed counters.
-    pub fn new(grid_dimensions: UVec3, spacing: f32, base_dt: f32) -> Self {
+    pub fn new(grid_dimensions: UVec3, spacing: f32) -> Self {
         Self {
             grid_dimensions,
             spacing,
-            base_dt,
             total_cells: 0,
             gravity_enabled: true,
         }
@@ -64,14 +62,16 @@ pub fn setup_universe(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut gravity: ResMut<GravityParams>,
+    mut sim_state: ResMut<SimulationState>,
 ) {
     // Configure a modest grid that is fast to render while showcasing the lattice.
     let grid_dimensions = UVec3::new(10, 10, 10);
     let spacing = 1.4;
     let base_dt = 1.0 / 60.0;
 
-    let mut universe = PruUniverse::new(grid_dimensions, spacing, base_dt);
+    let mut universe = PruUniverse::new(grid_dimensions, spacing);
     commands.insert_resource(universe.clone());
+    sim_state.dt = base_dt;
     gravity.enabled = universe.gravity_enabled;
 
     let mut rng = StdRng::seed_from_u64(42);

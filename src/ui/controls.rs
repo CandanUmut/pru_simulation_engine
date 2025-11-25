@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::app::SimulationState;
-use crate::pru::gravity::{GravityParams, SimulationEnergy};
+use crate::pru::gravity::{GravityMode, GravityParams, SimulationEnergy};
 use crate::pru::universe::{FieldMetrics, PruUniverse};
 
 pub const DENSITY_BAR_COUNT: usize = 40;
@@ -46,6 +46,12 @@ pub(crate) struct GravityToggle;
 
 #[derive(Component)]
 pub(crate) struct GravityLabel;
+
+#[derive(Component)]
+pub(crate) struct GravityModeToggle;
+
+#[derive(Component)]
+pub(crate) struct GravityModeLabel;
 
 #[derive(Component)]
 pub(crate) struct GravityParamsText;
@@ -265,6 +271,7 @@ pub fn setup_ui(mut commands: Commands) {
                         })
                         .with_children(|row| {
                             spawn_button(row, "Gravity", GravityToggle, GravityLabel, &colors);
+                            spawn_button(row, "Mode", GravityModeToggle, GravityModeLabel, &colors);
                             spawn_button(
                                 row,
                                 "G -",
@@ -420,6 +427,12 @@ pub fn keyboard_controls(
     if keys.just_pressed(KeyCode::KeyG) {
         gravity.enabled = !gravity.enabled;
     }
+    if keys.just_pressed(KeyCode::KeyM) {
+        gravity.mode = match gravity.mode {
+            GravityMode::NaiveNBody => GravityMode::RelationalLattice,
+            GravityMode::RelationalLattice => GravityMode::NaiveNBody,
+        };
+    }
     if keys.just_pressed(KeyCode::BracketLeft) {
         gravity.g_effective = (gravity.g_effective - 0.05).max(0.0);
     }
@@ -456,6 +469,7 @@ pub fn update_ui_buttons(
             Option<&DensityToggle>,
             Option<&CurvatureToggle>,
             Option<&GravityToggle>,
+            Option<&GravityModeToggle>,
             Option<&GravityAdjustButton>,
             Option<&DampingAdjustButton>,
             Option<&SofteningAdjustButton>,
@@ -473,6 +487,7 @@ pub fn update_ui_buttons(
         density_toggle,
         curvature_toggle,
         gravity_toggle,
+        gravity_mode_toggle,
         gravity_adjust,
         damping_adjust,
         softening_adjust,
@@ -494,6 +509,11 @@ pub fn update_ui_buttons(
                     modes.toggle_curvature();
                 } else if gravity_toggle.is_some() {
                     gravity.enabled = !gravity.enabled;
+                } else if gravity_mode_toggle.is_some() {
+                    gravity.mode = match gravity.mode {
+                        GravityMode::NaiveNBody => GravityMode::RelationalLattice,
+                        GravityMode::RelationalLattice => GravityMode::NaiveNBody,
+                    };
                 } else if let Some(adj) = gravity_adjust {
                     gravity.g_effective = (gravity.g_effective + adj.delta).clamp(0.0, 5.0);
                 } else if let Some(adj) = damping_adjust {
@@ -609,6 +629,7 @@ pub fn update_overlay_labels(
 pub fn update_gravity_labels(
     params: Res<GravityParams>,
     mut gravity_label: Query<&mut Text, With<GravityLabel>>,
+    mut gravity_mode_label: Query<&mut Text, With<GravityModeLabel>>,
     mut params_text: Query<&mut Text, With<GravityParamsText>>,
 ) {
     if let Ok(mut text) = gravity_label.get_single_mut() {
@@ -619,10 +640,24 @@ pub fn update_gravity_labels(
         };
     }
 
+    if let Ok(mut text) = gravity_mode_label.get_single_mut() {
+        text.sections[0].value = match params.mode {
+            GravityMode::NaiveNBody => "Mode: Naive N-Body".to_string(),
+            GravityMode::RelationalLattice => "Mode: Relational Lattice".to_string(),
+        };
+    }
+
     if let Ok(mut text) = params_text.get_single_mut() {
         text.sections[0].value = format!(
-            "G_eff: {:.2}\nSoftening: {:.3}\nDamping: {:.4}\nMax Accel: {:.0}",
-            params.g_effective, params.softening_length, params.damping, params.max_acceleration
+            "G_eff: {:.2}\nSoftening: {:.3}\nDamping: {:.4}\nMax Accel: {:.0}\nSolver: {}",
+            params.g_effective,
+            params.softening_length,
+            params.damping,
+            params.max_acceleration,
+            match params.mode {
+                GravityMode::NaiveNBody => "Naive N-Body",
+                GravityMode::RelationalLattice => "Relational",
+            }
         );
     }
 }
