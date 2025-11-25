@@ -4,6 +4,7 @@ use crate::pru::cell::DerivedFields;
 use crate::pru::gravity::{
     compute_energy_metrics, simulate_gravity_step, GravityParams, SimulationEnergy,
 };
+use crate::pru::gravity_relational::initialize_relational_kernel;
 use crate::pru::universe::{compute_derived_fields, setup_universe, FieldMetrics};
 use crate::render::RenderPlugin;
 use crate::ui::controls::VisualModeSettings;
@@ -73,7 +74,14 @@ pub struct PruSimulationPlugin;
 
 impl Plugin for PruSimulationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_universe).add_systems(
+        app.add_systems(
+            Startup,
+            (
+                setup_universe,
+                initialize_relational_kernel.after(setup_universe),
+            ),
+        )
+        .add_systems(
             Update,
             (
                 advance_simulation_time,

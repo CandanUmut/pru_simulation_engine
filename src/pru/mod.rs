@@ -7,5 +7,6 @@
 
 pub mod cell;
 pub mod gravity;
+pub mod gravity_relational;
 pub mod rules;
 pub mod universe;

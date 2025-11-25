@@ -2,18 +2,29 @@ use bevy::prelude::*;
 
 use crate::app::SimulationState;
 use crate::pru::cell::{PruCell, PruDynamics};
+use crate::pru::gravity_relational::{apply_relational_gravity, RelationalKernel};
+use crate::pru::universe::PruUniverse;
 
 // =========================
 // PHASE 3: MACRO GRAVITY & LARGE-SCALE STRUCTURE
-// Status: IN PROGRESS (naive pairwise gravity, motion integration, energy metrics)
+// Status: IN PROGRESS (naive pairwise gravity, relational lattice gravity, motion integration, energy metrics)
 // =========================
+
+/// Choice of macro-gravity solver.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GravityMode {
+    /// Baseline O(N^2) pairwise solver for debugging and small-N comparisons.
+    NaiveNBody,
+    /// PRU-style lattice solver that uses precomputed neighbor kernels.
+    RelationalLattice,
+}
 
 /// Tunable parameters controlling the effective gravity model.
 #[derive(Resource, Clone)]
 pub struct GravityParams {
     /// Effective gravitational constant (dimensionless scaling of the UA-derived mass product).
     pub g_effective: f32,
-    /// Softening length to avoid singularities at tiny separations.
+    /// Softening length to avoid singularities at tiny separations or to tame the relational kernel gain.
     pub softening_length: f32,
     /// Simple velocity damping to keep the naive integrator stable.
     pub damping: f32,
@@ -21,6 +32,8 @@ pub struct GravityParams {
     pub max_acceleration: f32,
     /// Whether gravity forces are applied (integration still runs for inertial motion).
     pub enabled: bool,
+    /// Active solver controlling how accelerations are computed.
+    pub mode: GravityMode,
 }
 
 impl Default for GravityParams {
@@ -31,6 +44,7 @@ impl Default for GravityParams {
             damping: 0.01,
             max_acceleration: 120.0,
             enabled: true,
+            mode: GravityMode::RelationalLattice,
         }
     }
 }
@@ -51,7 +65,10 @@ pub struct SimulationEnergy {
 /// accelerators can swap in while preserving the integrator and UI plumbing.
 pub fn simulate_gravity_step(
     params: Res<GravityParams>,
+    universe: Res<PruUniverse>,
+    kernel: Option<Res<RelationalKernel>>,
     mut sim_state: ResMut<SimulationState>,
+    cell_data_query: Query<(&PruCell, &PruDynamics)>,
     mut bodies: Query<(&mut PruCell, &mut PruDynamics, &mut Transform)>,
 ) {
     let steps = sim_state.take_pending_steps();
@@ -69,33 +86,53 @@ pub fn simulate_gravity_step(
         }
 
         if params.enabled {
-            // Pairwise force accumulation using Bevy's combination iterator.
-            {
-                let mut combos = bodies.iter_combinations_mut();
-                while let Some([(cell_a, mut dyn_a, _), (cell_b, mut dyn_b, _)]) =
-                    combos.fetch_next()
-                {
-                    let displacement = cell_b.position - cell_a.position;
-                    let dist2 = displacement.length_squared() + softening2;
-                    if dist2 <= 0.0 {
-                        continue;
+            match params.mode {
+                GravityMode::NaiveNBody => {
+                    // Pairwise force accumulation using Bevy's combination iterator.
+                    let mut combos = bodies.iter_combinations_mut();
+                    while let Some([(cell_a, mut dyn_a, _), (cell_b, mut dyn_b, _)]) =
+                        combos.fetch_next()
+                    {
+                        let displacement = cell_b.position - cell_a.position;
+                        let dist2 = displacement.length_squared() + softening2;
+                        if dist2 <= 0.0 {
+                            continue;
+                        }
+
+                        let inv_dist = dist2.sqrt().recip();
+                        let inv_dist3 = inv_dist * inv_dist * inv_dist;
+                        let mass_product = dyn_a.mass * dyn_b.mass;
+                        if mass_product <= 0.0 {
+                            continue;
+                        }
+
+                        let force_mag = params.g_effective * mass_product * inv_dist3;
+                        let direction = displacement * inv_dist;
+
+                        let accel_a = direction * (force_mag / dyn_a.mass);
+                        let accel_b = direction * (force_mag / dyn_b.mass);
+
+                        dyn_a.acceleration += accel_a;
+                        dyn_b.acceleration -= accel_b;
                     }
-
-                    let inv_dist = dist2.sqrt().recip();
-                    let inv_dist3 = inv_dist * inv_dist * inv_dist;
-                    let mass_product = dyn_a.mass * dyn_b.mass;
-                    if mass_product <= 0.0 {
-                        continue;
+                }
+                GravityMode::RelationalLattice => {
+                    if let Some(kernel) = kernel.as_ref() {
+                        // Snapshot the lattice masses so we can feed a dense lookup table to the
+                        // relational kernel. This keeps runtime work to neighbor lookups instead
+                        // of all-pairs force evaluation.
+                        let cell_data: Vec<(UVec3, f32)> = cell_data_query
+                            .iter()
+                            .map(|(cell, dyn_state)| (cell.grid_coords, dyn_state.mass))
+                            .collect();
+                        apply_relational_gravity(
+                            &params,
+                            &universe,
+                            kernel,
+                            &cell_data,
+                            &mut bodies,
+                        );
                     }
-
-                    let force_mag = params.g_effective * mass_product * inv_dist3;
-                    let direction = displacement * inv_dist;
-
-                    let accel_a = direction * (force_mag / dyn_a.mass);
-                    let accel_b = direction * (force_mag / dyn_b.mass);
-
-                    dyn_a.acceleration += accel_a;
-                    dyn_b.acceleration -= accel_b;
                 }
             }
         }
