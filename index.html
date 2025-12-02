@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRU Universe · Web Sandbox</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d11;
+      --panel: #11141a;
+      --panel-border: #1f2430;
+      --accent: #6ad8ff;
+      --accent-2: #ff9f6b;
+      --text: #d6e2ff;
+      --muted: #7c8aa6;
+      --green: #5ee1a5;
+      --yellow: #ffd166;
+      --red: #ff6b81;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    body { display: flex; overflow: hidden; }
+    #scene-container { flex: 1; position: relative; }
+    #overlay-title { position: absolute; top: 18px; left: 18px; background: rgba(10,12,18,0.7); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--panel-border); box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    #overlay-title h1 { margin: 0; font-size: 22px; letter-spacing: 0.02em; }
+    #overlay-title p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    #panel { width: 360px; background: var(--panel); border-left: 1px solid var(--panel-border); padding: 16px; overflow-y: auto; }
+    .section { padding: 12px 0; border-bottom: 1px solid var(--panel-border); }
+    .section:last-child { border-bottom: none; }
+    .section h3 { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; color: var(--muted); }
+    .phase-row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 14px; }
+    .controls button { margin-right: 6px; margin-bottom: 6px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--panel-border); background: #161a24; color: var(--text); cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+    .controls button:hover { border-color: var(--accent); }
+    .controls .segmented { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 10px; overflow: hidden; }
+    .controls .segmented button { margin: 0; border: none; border-right: 1px solid var(--panel-border); border-radius: 0; background: #161a24; }
+    .controls .segmented button:last-child { border-right: none; }
+    .controls .segmented button.active { background: linear-gradient(135deg, #19324a, #132130); color: #cceaff; }
+    label.small { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+    .toggle { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--panel-border); background: #161a24; width: 100%; text-align: left; cursor: pointer; }
+    .row { display: flex; align-items: center; justify-content: space-between; }
+    .row + .row { margin-top: 8px; }
+    input[type=range] { width: 100%; }
+    .hud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 13px; }
+    .hud-grid div { background: #0f1219; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--panel-border); }
+    .hud-grid strong { color: var(--accent-2); }
+    #sparkline { width: 100%; height: 50px; background: #0f1218; border: 1px solid var(--panel-border); border-radius: 8px; }
+    #agents { background: #0f1219; border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px; height: 140px; overflow-y: auto; font-size: 13px; line-height: 1.4; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 999px; font-size: 11px; background: #162034; border: 1px solid var(--panel-border); }
+    .text-muted { color: var(--muted); }
+    a { color: var(--accent); }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="scene-container">
+    <div id="overlay-title">
+      <h1>PRU Universe · Web Sandbox</h1>
+      <p>Precomputed Relational Universe (Three.js demo)</p>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="section" id="phase-status">
+      <h3>Phase Status</h3>
+      <div class="phase-row"><span>Phase 1: Core Scaffold</span><span>✅</span></div>
+      <div class="phase-row"><span>Phase 2: Fields & Overlays</span><span>✅</span></div>
+      <div class="phase-row"><span>Phase 3: Gravity & LSS</span><span>⏳</span></div>
+      <div class="phase-row"><span>Phase 4: Stars & Agents</span><span>⏳</span></div>
+      <div class="phase-row"><span>Phase 5: Time Control & Presets</span><span>TODO</span></div>
+    </div>
+
+    <div class="section controls" id="sim-controls">
+      <h3>Simulation Controls</h3>
+      <div>
+        <button id="pause-btn">Pause</button>
+        <button id="step-btn">Step</button>
+      </div>
+      <div>
+        <button id="slower-btn">Slower</button>
+        <button id="faster-btn">Faster</button>
+      </div>
+      <div class="row"><span class="text-muted">Time scale</span><span id="timescale-label">1.0×</span></div>
+    </div>
+
+    <div class="section controls" id="overlays">
+      <h3>Overlays</h3>
+      <div class="segmented" id="overlay-buttons">
+        <button data-mode="base" class="active">Base</button>
+        <button data-mode="density">Density</button>
+        <button data-mode="curvature">Curvature</button>
+      </div>
+      <label class="small">Density from UA (mass lock)</label>
+      <label class="small">Curvature from UB + neighbors</label>
+    </div>
+
+    <div class="section controls" id="gravity">
+      <h3>Gravity</h3>
+      <button class="toggle" id="gravity-toggle">Gravity: OFF</button>
+      <label class="small">Mode</label>
+      <div class="segmented" id="gravity-mode">
+        <button data-mode="naive" class="active">Naive N-body</button>
+        <button data-mode="relational">Relational Lattice</button>
+      </div>
+      <label class="small">G (constant)</label>
+      <input type="range" id="g-slider" min="0.1" max="5" step="0.1" value="1.2">
+      <div class="row"><span class="text-muted">Value</span><span id="g-label">1.2</span></div>
+      <label class="small">Damping</label>
+      <input type="range" id="damping-slider" min="0" max="0.2" step="0.005" value="0.02">
+      <div class="row"><span class="text-muted">Value</span><span id="damping-label">0.02</span></div>
+      <label class="small">Softening</label>
+      <input type="range" id="softening-slider" min="0.1" max="3" step="0.1" value="1.0">
+      <div class="row"><span class="text-muted">Value</span><span id="softening-label">1.0</span></div>
+    </div>
+
+    <div class="section" id="metrics">
+      <h3>Metrics HUD</h3>
+      <div class="hud-grid">
+        <div>Tick <strong id="tick-label">0</strong></div>
+        <div>Sim t <strong id="simtime-label">0.00s</strong></div>
+        <div>Cells <strong id="cell-label">0</strong></div>
+        <div>ΔE/E0 <strong id="energy-drift">0</strong></div>
+        <div>Avg ρ <strong id="density-avg">0</strong></div>
+        <div>Min/Max ρ <strong id="density-minmax">0 / 0</strong></div>
+        <div>Avg κ <strong id="curv-avg">0</strong></div>
+        <div>Energy <strong id="energy-breakdown">0</strong></div>
+      </div>
+      <div class="row" style="margin-top:10px;"><span class="text-muted">Density sparkline</span><span class="badge">Rolling avg</span></div>
+      <canvas id="sparkline" width="320" height="50"></canvas>
+    </div>
+
+    <div class="section" id="agents-section">
+      <h3>Astro Agents (Phase 4 preview)</h3>
+      <div id="agents"></div>
+    </div>
+  </aside>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.164.1/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+
+    // --------- Scene setup ---------
+    const container = document.getElementById('scene-container');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setClearColor(new THREE.Color(0x05070c), 1);
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+    camera.position.set(40, 26, 40);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxDistance = 180;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x8899ff, 0.4));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    dir.position.set(30, 50, 20);
+    scene.add(dir);
+
+    const gridHelper = new THREE.GridHelper(100, 20, 0x1f2a3a, 0x111723);
+    gridHelper.position.y = -15;
+    scene.add(gridHelper);
+
+    // --------- PRU lattice data ---------
+    const GRID = 16; // 16x16x16 = 4096 cells
+    const CELL_SPACING = 1.1;
+    const HALF = (GRID - 1) / 2;
+    const cellCount = GRID * GRID * GRID;
+    document.getElementById('cell-label').textContent = cellCount.toLocaleString();
+
+    const ua = new Float32Array(cellCount); // mass lock
+    const ub = new Float32Array(cellCount); // geometry lock
+    const density = new Float32Array(cellCount);
+    const curvature = new Float32Array(cellCount);
+    const basePositions = new Array(cellCount);
+    const dynamicPositions = new Array(cellCount);
+
+    // initialize lattice
+    let idx = 0;
+    for (let x = 0; x < GRID; x++) {
+      for (let y = 0; y < GRID; y++) {
+        for (let z = 0; z < GRID; z++) {
+          ua[idx] = Math.random();
+          ub[idx] = Math.random();
+          density[idx] = ua[idx];
+          curvature[idx] = 0;
+          const px = (x - HALF) * CELL_SPACING;
+          const py = (y - HALF) * CELL_SPACING;
+          const pz = (z - HALF) * CELL_SPACING;
+          const pos = new THREE.Vector3(px, py, pz);
+          basePositions[idx] = pos.clone();
+          dynamicPositions[idx] = pos.clone();
+          idx++;
+        }
+      }
+    }
+
+    // Instanced mesh for cells
+    const geometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+    const material = new THREE.MeshStandardMaterial({ color: 0x66aaff, metalness: 0.1, roughness: 0.3, transparent: true, opacity: 0.92 });
+    const instanced = new THREE.InstancedMesh(geometry, material, cellCount);
+    instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    instanced.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cellCount * 3), 3);
+    scene.add(instanced);
+
+    function updateInstanceMatrices() {
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < cellCount; i++) {
+        const p = dynamicPositions[i];
+        dummy.position.copy(p);
+        dummy.rotation.y = (ua[i] + ub[i]) * Math.PI * 0.2;
+        dummy.updateMatrix();
+        instanced.setMatrixAt(i, dummy.matrix);
+      }
+      instanced.instanceMatrix.needsUpdate = true;
+    }
+
+    // --------- Gravity data (naive subset) ---------
+    const particleIndices = new Set();
+    while (particleIndices.size < 220) {
+      particleIndices.add(Math.floor(Math.random() * cellCount));
+    }
+    const particleVel = new Map();
+    particleIndices.forEach(i => particleVel.set(i, new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2)));
+
+    // --------- HUD elements ---------
+    const tickLabel = document.getElementById('tick-label');
+    const simtimeLabel = document.getElementById('simtime-label');
+    const timescaleLabel = document.getElementById('timescale-label');
+    const densityAvgLabel = document.getElementById('density-avg');
+    const densityMinMaxLabel = document.getElementById('density-minmax');
+    const curvAvgLabel = document.getElementById('curv-avg');
+    const energyBreakdown = document.getElementById('energy-breakdown');
+    const energyDrift = document.getElementById('energy-drift');
+    const agentsDiv = document.getElementById('agents');
+
+    const sparkCanvas = document.getElementById('sparkline');
+    const sparkCtx = sparkCanvas.getContext('2d');
+    const sparkHistory = [];
+    function drawSparkline() {
+      const w = sparkCanvas.width, h = sparkCanvas.height;
+      sparkCtx.clearRect(0,0,w,h);
+      sparkCtx.fillStyle = '#0c1018';
+      sparkCtx.fillRect(0,0,w,h);
+      sparkCtx.strokeStyle = '#2e3b52';
+      sparkCtx.lineWidth = 1;
+      sparkCtx.beginPath();
+      sparkCtx.moveTo(0, h-12);
+      sparkCtx.lineTo(w, h-12);
+      sparkCtx.stroke();
+      if (sparkHistory.length < 2) return;
+      const max = Math.max(...sparkHistory);
+      const min = Math.min(...sparkHistory);
+      sparkCtx.strokeStyle = '#6ad8ff';
+      sparkCtx.lineWidth = 2;
+      sparkCtx.beginPath();
+      sparkHistory.forEach((v, i) => {
+        const x = (i / (sparkHistory.length - 1)) * w;
+        const norm = (v - min) / (max - min + 1e-5);
+        const y = h - 4 - norm * (h - 12);
+        if (i === 0) sparkCtx.moveTo(x, y);
+        else sparkCtx.lineTo(x, y);
+      });
+      sparkCtx.stroke();
+    }
+
+    // --------- Overlay coloring ---------
+    const color = new THREE.Color();
+    let overlayMode = 'base';
+    function applyOverlayColors() {
+      for (let i = 0; i < cellCount; i++) {
+        const d = density[i];
+        const c = curvature[i];
+        if (overlayMode === 'density') {
+          // Map density to warm palette
+          const t = d;
+          color.setHSL(0.06 + 0.1 * t, 0.9, 0.35 + 0.3 * t);
+        } else if (overlayMode === 'curvature') {
+          const t = THREE.MathUtils.clamp((c + 1) / 2, 0, 1);
+          color.setHSL(0.6 - 0.4 * t, 0.8, 0.4 + 0.25 * t);
+        } else {
+          color.setHSL(0.55 + 0.25 * (ub[i]-0.5), 0.5 + 0.3 * ua[i], 0.36 + 0.18 * ua[i]);
+        }
+        instanced.setColorAt(i, color);
+      }
+      instanced.instanceColor.needsUpdate = true;
+    }
+
+    // --------- Simulation state ---------
+    let running = true;
+    let tick = 0;
+    let simTime = 0;
+    let timeScale = 1.0;
+    let accumulated = 0;
+    const FIXED_DT = 0.02; // 50 ticks per second of sim time
+
+    let gravityOn = false;
+    let gravityMode = 'naive';
+    let G = parseFloat(document.getElementById('g-slider').value);
+    let damping = parseFloat(document.getElementById('damping-slider').value);
+    let softening = parseFloat(document.getElementById('softening-slider').value);
+
+    let energy0 = null;
+
+    // --------- Field computation ---------
+    const neighborOffsets = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (dx === 0 && dy === 0 && dz === 0) continue;
+          neighborOffsets.push([dx, dy, dz]);
+        }
+      }
+    }
+
+    function indexFromXYZ(x, y, z) {
+      return x * GRID * GRID + y * GRID + z;
+    }
+
+    function computeFields() {
+      // density is ua, curvature approximated from UB - neighbor avg
+      let avgDensity = 0, minDensity = 1e9, maxDensity = -1e9, avgCurv = 0;
+      for (let x = 0; x < GRID; x++) {
+        for (let y = 0; y < GRID; y++) {
+          for (let z = 0; z < GRID; z++) {
+            const i = indexFromXYZ(x,y,z);
+            density[i] = ua[i];
+            let sum = 0, count = 0;
+            for (const [dx,dy,dz] of neighborOffsets) {
+              const nx = x + dx, ny = y + dy, nz = z + dz;
+              if (nx < 0 || ny < 0 || nz < 0 || nx >= GRID || ny >= GRID || nz >= GRID) continue;
+              sum += ub[indexFromXYZ(nx, ny, nz)];
+              count++;
+            }
+            const neighborAvg = count > 0 ? sum / count : ub[i];
+            curvature[i] = ub[i] - neighborAvg;
+            const d = density[i];
+            avgDensity += d;
+            minDensity = Math.min(minDensity, d);
+            maxDensity = Math.max(maxDensity, d);
+            avgCurv += curvature[i];
+          }
+        }
+      }
+      avgDensity /= cellCount;
+      avgCurv /= cellCount;
+      densityAvgLabel.textContent = avgDensity.toFixed(3);
+      densityMinMaxLabel.textContent = `${minDensity.toFixed(3)} / ${maxDensity.toFixed(3)}`;
+      curvAvgLabel.textContent = avgCurv.toFixed(4);
+      sparkHistory.push(avgDensity);
+      if (sparkHistory.length > 80) sparkHistory.shift();
+      drawSparkline();
+    }
+
+    // --------- Gravity logic ---------
+    function applyNaiveGravity() {
+      const indices = Array.from(particleIndices);
+      const forces = indices.map(() => new THREE.Vector3());
+      // Pairwise interactions
+      for (let a = 0; a < indices.length; a++) {
+        const ia = indices[a];
+        const pa = dynamicPositions[ia];
+        const ma = density[ia] + 0.1;
+        for (let b = a + 1; b < indices.length; b++) {
+          const ib = indices[b];
+          const pb = dynamicPositions[ib];
+          const mb = density[ib] + 0.1;
+          const dir = new THREE.Vector3().subVectors(pb, pa);
+          const dist2 = dir.lengthSq() + softening * softening;
+          const inv = 1 / Math.sqrt(dist2);
+          dir.normalize();
+          const f = (G * ma * mb) * inv * inv;
+          dir.multiplyScalar(f);
+          forces[a].add(dir);
+          forces[b].sub(dir);
+        }
+      }
+      // Integrate
+      let kinetic = 0;
+      let potential = 0;
+      for (let a = 0; a < indices.length; a++) {
+        const i = indices[a];
+        const v = particleVel.get(i);
+        v.addScaledVector(forces[a], FIXED_DT);
+        v.multiplyScalar(1 - damping);
+        dynamicPositions[i].addScaledVector(v, FIXED_DT);
+        kinetic += 0.5 * (density[i] + 0.1) * v.lengthSq();
+      }
+      // approximate potential via forces
+      for (let a = 0; a < indices.length; a++) {
+        potential += forces[a].length();
+      }
+      return { kinetic, potential: potential * 0.5 };
+    }
+
+    function applyRelationalGravity() {
+      // Simple stencil: shift positions slightly toward density gradient
+      const offsets = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+      for (let x = 1; x < GRID-1; x++) {
+        for (let y = 1; y < GRID-1; y++) {
+          for (let z = 1; z < GRID-1; z++) {
+            const i = indexFromXYZ(x,y,z);
+            let gx = 0, gy = 0, gz = 0;
+            offsets.forEach(([dx,dy,dz]) => {
+              const ni = indexFromXYZ(x+dx, y+dy, z+dz);
+              const diff = density[ni] - density[i];
+              gx += diff * dx;
+              gy += diff * dy;
+              gz += diff * dz;
+            });
+            const disp = new THREE.Vector3(gx, gy, gz).multiplyScalar(G * 0.02);
+            dynamicPositions[i].addScaledVector(disp, FIXED_DT);
+          }
+        }
+      }
+      // mild damping back toward base
+      for (let i = 0; i < cellCount; i++) {
+        const base = basePositions[i];
+        dynamicPositions[i].lerp(base, damping * 0.5);
+      }
+      return { kinetic: 0.1, potential: 0.1 };
+    }
+
+    // --------- Astro agents ---------
+    function updateAgents() {
+      // Derive stars and black holes based on density/curvature thresholds
+      const starIdx = [];
+      const bhIdx = [];
+      for (let i = 0; i < cellCount; i++) {
+        if (density[i] > 0.82) starIdx.push(i);
+        if (density[i] > 0.92 && curvature[i] > 0.05) bhIdx.push(i);
+      }
+      // simple clustering into fake galaxies by coordinate band
+      const clusters = new Map();
+      starIdx.forEach(i => {
+        const p = basePositions[i];
+        const key = `${Math.round(p.x/6)},${Math.round(p.y/6)},${Math.round(p.z/6)}`;
+        clusters.set(key, (clusters.get(key) || 0) + 1);
+      });
+      const entries = [];
+      let id = 1;
+      clusters.forEach((count, key) => {
+        if (count < 8) return;
+        const mass = (count * 0.8 + bhIdx.length * 1.2).toFixed(1);
+        entries.push(`Agent G-${id}: ${count} stars, mass +${mass}%`);
+        id++;
+      });
+      if (bhIdx.length > 0) entries.push(`BH seeds: ${bhIdx.length} cores detected`);
+      if (entries.length === 0) entries.push('No significant agents this tick; halos stabilizing.');
+      agentsDiv.innerHTML = entries.map(e => `<div>${e}</div>`).join('');
+    }
+
+    // --------- UI wiring ---------
+    const pauseBtn = document.getElementById('pause-btn');
+    const stepBtn = document.getElementById('step-btn');
+    const slowerBtn = document.getElementById('slower-btn');
+    const fasterBtn = document.getElementById('faster-btn');
+    pauseBtn.addEventListener('click', () => {
+      running = !running;
+      pauseBtn.textContent = running ? 'Pause' : 'Resume';
+    });
+    stepBtn.addEventListener('click', () => { if (!running) performTick(); });
+    slowerBtn.addEventListener('click', () => { timeScale = Math.max(0.05, timeScale / 1.5); timescaleLabel.textContent = `${timeScale.toFixed(2)}×`; });
+    fasterBtn.addEventListener('click', () => { timeScale = Math.min(8, timeScale * 1.5); timescaleLabel.textContent = `${timeScale.toFixed(2)}×`; });
+
+    document.getElementById('overlay-buttons').addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') return;
+      overlayMode = e.target.dataset.mode;
+      [...e.currentTarget.children].forEach(btn => btn.classList.toggle('active', btn === e.target));
+      applyOverlayColors();
+    });
+
+    document.getElementById('gravity-toggle').addEventListener('click', (e) => {
+      gravityOn = !gravityOn;
+      e.target.textContent = gravityOn ? 'Gravity: ON' : 'Gravity: OFF';
+      if (gravityOn && energy0 === null) energy0 = 0.0001; // initialize baseline
+    });
+
+    document.getElementById('gravity-mode').addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') return;
+      gravityMode = e.target.dataset.mode;
+      [...e.currentTarget.children].forEach(btn => btn.classList.toggle('active', btn === e.target));
+    });
+
+    const gSlider = document.getElementById('g-slider');
+    const dampingSlider = document.getElementById('damping-slider');
+    const softSlider = document.getElementById('softening-slider');
+    gSlider.addEventListener('input', () => { G = parseFloat(gSlider.value); document.getElementById('g-label').textContent = G.toFixed(2); });
+    dampingSlider.addEventListener('input', () => { damping = parseFloat(dampingSlider.value); document.getElementById('damping-label').textContent = damping.toFixed(3); });
+    softSlider.addEventListener('input', () => { softening = parseFloat(softSlider.value); document.getElementById('softening-label').textContent = softening.toFixed(1); });
+
+    // keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { e.preventDefault(); pauseBtn.click(); }
+      else if (e.key === '.') { stepBtn.click(); }
+      else if (e.key === '-' || e.key === '_') { slowerBtn.click(); }
+      else if (e.key === '+' || e.key === '=') { fasterBtn.click(); }
+      else if (e.key.toLowerCase() === 'd') { document.querySelector('[data-mode="density"]').click(); }
+      else if (e.key.toLowerCase() === 'c') { document.querySelector('[data-mode="curvature"]').click(); }
+      else if (e.key.toLowerCase() === 'g') { document.getElementById('gravity-toggle').click(); }
+    });
+
+    window.addEventListener('resize', () => {
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+    });
+
+    // --------- Tick logic ---------
+    function performTick() {
+      // compute fields first
+      computeFields();
+      // gravity
+      let energy = { kinetic: 0, potential: 0 };
+      if (gravityOn) {
+        if (gravityMode === 'naive') energy = applyNaiveGravity();
+        else energy = applyRelationalGravity();
+      }
+      updateInstanceMatrices();
+      applyOverlayColors();
+      tick++;
+      tickLabel.textContent = tick.toString();
+      // energy HUD
+      if (energy0 === null) energy0 = Math.max(energy.kinetic + energy.potential, 0.0001);
+      const totalE = energy.kinetic + energy.potential;
+      const drift = ((totalE - energy0) / energy0) || 0;
+      energyBreakdown.textContent = `${energy.kinetic.toFixed(3)}k / ${energy.potential.toFixed(3)}p / ${totalE.toFixed(3)}T`;
+      energyDrift.textContent = drift.toFixed(4);
+      // agents
+      if (tick % 10 === 0) updateAgents();
+    }
+
+    // --------- Animation loop ---------
+    let last = performance.now();
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const delta = (now - last) / 1000;
+      last = now;
+      if (running) {
+        accumulated += delta * timeScale;
+        simTime += delta * timeScale;
+        while (accumulated >= FIXED_DT) {
+          performTick();
+          accumulated -= FIXED_DT;
+        }
+      }
+      simtimeLabel.textContent = `${simTime.toFixed(2)}s`;
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // initial boot
+    computeFields();
+    updateInstanceMatrices();
+    applyOverlayColors();
+    drawSparkline();
+    updateAgents();
+    animate(performance.now());
+  </script>
+</body>
+</html>
