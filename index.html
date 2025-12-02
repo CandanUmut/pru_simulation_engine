@@ -335,9 +335,10 @@
   </aside>
 
   <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.164.1/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+  import * as THREE from "https://unpkg.com/three@0.164.1/build/three.module.js";
+  import { OrbitControls } from "https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js";
 
+  try {
     // --------- Scene setup ---------
     const container = document.getElementById('scene-container');
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -347,32 +348,30 @@
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-
     const camera = new THREE.PerspectiveCamera(
       55,
       container.clientWidth / container.clientHeight,
       0.1,
       2000
     );
-    camera.position.set(40, 26, 40);
+    camera.position.set(34, 28, 36);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.maxDistance = 180;
+    controls.maxDistance = 200;
 
-    // Lighting
-    scene.add(new THREE.AmbientLight(0x8899ff, 0.4));
-    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
-    dir.position.set(30, 50, 20);
-    scene.add(dir);
+    scene.add(new THREE.AmbientLight(0x8899ff, 0.5));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(40, 60, 35);
+    scene.add(dirLight);
 
     // Background starfield
     const starGeo = new THREE.BufferGeometry();
-    const starCount = 1200;
+    const starCount = 1400;
     const starPos = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
-      const r = 180 * Math.pow(Math.random(), 0.4);
+      const r = 220 * Math.pow(Math.random(), 0.45);
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(2 * Math.random() - 1);
       starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
@@ -381,41 +380,38 @@
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
     const starMat = new THREE.PointsMaterial({
-      size: 0.6,
+      size: 0.55,
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.45
+      opacity: 0.4
     });
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
-    const gridHelper = new THREE.GridHelper(100, 20, 0x1f2a3a, 0x111723);
-    gridHelper.position.y = -15;
-    scene.add(gridHelper);
+    const grid = new THREE.GridHelper(120, 20, 0x1f2a3a, 0x111723);
+    grid.position.y = -14;
+    scene.add(grid);
 
     // --------- PRU lattice data ---------
-    const GRID = 16; // 16x16x16 = 4096 cells
+    const GRID = 16;
     const CELL_SPACING = 1.1;
     const HALF = (GRID - 1) / 2;
     const cellCount = GRID * GRID * GRID;
     document.getElementById('cell-label').textContent = cellCount.toLocaleString();
 
-    const ua = new Float32Array(cellCount); // mass lock
-    const ub = new Float32Array(cellCount); // geometry lock
+    const ua = new Float32Array(cellCount);
+    const ub = new Float32Array(cellCount);
     const density = new Float32Array(cellCount);
     const curvature = new Float32Array(cellCount);
     const basePositions = new Array(cellCount);
     const dynamicPositions = new Array(cellCount);
 
-    // classification per cell: 0 = gas, 1 = star, 2 = BH seed
     const cellType = new Uint8Array(cellCount);
-    // galaxy membership per cell (-1 = none, >0 = G-id)
     const galaxyIds = new Int16Array(cellCount);
 
     function indexFromXYZ(x, y, z) {
       return x * GRID * GRID + y * GRID + z;
     }
-
     function xyzFromIndex(i) {
       const gx = Math.floor(i / (GRID * GRID));
       const gy = Math.floor((i % (GRID * GRID)) / GRID);
@@ -423,7 +419,6 @@
       return { x: gx, y: gy, z: gz };
     }
 
-    // initialize lattice positions only (UA/UB will be filled by presets)
     let idx = 0;
     for (let x = 0; x < GRID; x++) {
       for (let y = 0; y < GRID; y++) {
@@ -440,25 +435,27 @@
     }
 
     // Instanced mesh for cells
-    const geometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
-    const material = new THREE.MeshStandardMaterial({
+    const boxGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+    const boxMat = new THREE.MeshStandardMaterial({
       color: 0x66aaff,
       metalness: 0.1,
-      roughness: 0.3,
+      roughness: 0.35,
       transparent: true,
-      opacity: 0.92
+      opacity: 0.9,
+      vertexColors: true
     });
-    const instanced = new THREE.InstancedMesh(geometry, material, cellCount);
+    const instanced = new THREE.InstancedMesh(boxGeo, boxMat, cellCount);
     instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     instanced.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(cellCount * 3),
       3
     );
+    instanced.geometry.setAttribute('instanceColor', instanced.instanceColor);
     scene.add(instanced);
 
     // Selection highlight
     const highlight = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8, 0.8, 0.8),
+      new THREE.BoxGeometry(0.82, 0.82, 0.82),
       new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
     );
     highlight.visible = false;
@@ -476,28 +473,26 @@
         instanced.setMatrixAt(i, dummy.matrix);
       }
       instanced.instanceMatrix.needsUpdate = true;
-
       if (selectedIndex !== null) {
         highlight.position.copy(dynamicPositions[selectedIndex]);
+        highlight.visible = true;
       }
     }
 
     // --------- Gravity data (naive subset) ---------
     const particleIndices = new Set();
-    while (particleIndices.size < 220) {
+    while (particleIndices.size < 230) {
       particleIndices.add(Math.floor(Math.random() * cellCount));
     }
     const particleVel = new Map();
-    particleIndices.forEach(i =>
+    particleIndices.forEach(i => {
       particleVel.set(
         i,
-        new THREE.Vector3(
-          (Math.random() - 0.5) * 0.2,
-          (Math.random() - 0.5) * 0.2,
-          (Math.random() - 0.5) * 0.2
-        )
-      )
-    );
+        new THREE.Vector3((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1)
+      );
+    });
+    console.log('PRU lattice initialized', { GRID, cellCount });
+    console.log('Particle subset size', particleIndices.size);
 
     // --------- HUD elements ---------
     const tickLabel = document.getElementById('tick-label');
@@ -517,8 +512,8 @@
     const sparkCtx = sparkCanvas.getContext('2d');
     const sparkHistory = [];
     function drawSparkline() {
-      const w = sparkCanvas.width,
-        h = sparkCanvas.height;
+      const w = sparkCanvas.width;
+      const h = sparkCanvas.height;
       sparkCtx.clearRect(0, 0, w, h);
       sparkCtx.fillStyle = '#0c1018';
       sparkCtx.fillRect(0, 0, w, h);
@@ -545,26 +540,26 @@
     }
 
     // --------- Overlay coloring ---------
-    const color = new THREE.Color();
+    const tempColor = new THREE.Color();
     let overlayMode = 'base';
     function applyOverlayColors() {
       for (let i = 0; i < cellCount; i++) {
         const d = density[i];
         const c = curvature[i];
         if (overlayMode === 'density') {
-          const t = d;
-          color.setHSL(0.06 + 0.1 * t, 0.9, 0.35 + 0.3 * t);
+          const t = THREE.MathUtils.clamp(d, 0, 1);
+          tempColor.setHSL(0.02 + 0.12 * t, 0.85, 0.28 + 0.32 * t);
         } else if (overlayMode === 'curvature') {
-          const t = THREE.MathUtils.clamp((c + 1) / 2, 0, 1);
-          color.setHSL(0.6 - 0.4 * t, 0.8, 0.4 + 0.25 * t);
+          const t = THREE.MathUtils.clamp((c + 0.5) / 1.0, 0, 1);
+          tempColor.setHSL(0.58 - 0.48 * t, 0.85, 0.45 - 0.1 * (t - 0.5));
         } else {
-          color.setHSL(
+          tempColor.setHSL(
             0.55 + 0.25 * (ub[i] - 0.5),
-            0.5 + 0.3 * ua[i],
-            0.36 + 0.18 * ua[i]
+            0.45 + 0.35 * ua[i],
+            0.32 + 0.22 * ua[i]
           );
         }
-        instanced.setColorAt(i, color);
+        instanced.setColorAt(i, tempColor);
       }
       instanced.instanceColor.needsUpdate = true;
     }
@@ -575,7 +570,7 @@
     let simTime = 0;
     let timeScale = 1.0;
     let accumulated = 0;
-    const FIXED_DT = 0.02; // 50 ticks per second of sim time
+    const FIXED_DT = 0.02;
 
     let gravityOn = false;
     let gravityMode = 'naive';
@@ -597,35 +592,30 @@
     }
 
     function computeFields() {
-      let avgDensity = 0,
-        minDensity = 1e9,
-        maxDensity = -1e9,
-        avgCurv = 0;
+      let avgDensity = 0;
+      let minDensity = Infinity;
+      let maxDensity = -Infinity;
+      let avgCurv = 0;
+
       for (let x = 0; x < GRID; x++) {
         for (let y = 0; y < GRID; y++) {
           for (let z = 0; z < GRID; z++) {
             const i = indexFromXYZ(x, y, z);
             density[i] = ua[i];
-            let sum = 0,
-              count = 0;
+            let sum = 0;
+            let count = 0;
             for (const [dx, dy, dz] of neighborOffsets) {
-              const nx = x + dx,
-                ny = y + dy,
-                nz = z + dz;
-              if (
-                nx < 0 ||
-                ny < 0 ||
-                nz < 0 ||
-                nx >= GRID ||
-                ny >= GRID ||
-                nz >= GRID
-              )
-                continue;
-              sum += ub[indexFromXYZ(nx, ny, nz)];
+              const nx = x + dx;
+              const ny = y + dy;
+              const nz = z + dz;
+              if (nx < 0 || ny < 0 || nz < 0 || nx >= GRID || ny >= GRID || nz >= GRID) continue;
+              const ni = indexFromXYZ(nx, ny, nz);
+              sum += ub[ni];
               count++;
             }
             const neighborAvg = count > 0 ? sum / count : ub[i];
             curvature[i] = ub[i] - neighborAvg;
+
             const d = density[i];
             avgDensity += d;
             minDensity = Math.min(minDensity, d);
@@ -634,205 +624,162 @@
           }
         }
       }
+
       avgDensity /= cellCount;
       avgCurv /= cellCount;
+
       densityAvgLabel.textContent = avgDensity.toFixed(3);
       densityMinMaxLabel.textContent = `${minDensity.toFixed(3)} / ${maxDensity.toFixed(3)}`;
       curvAvgLabel.textContent = avgCurv.toFixed(4);
+
       sparkHistory.push(avgDensity);
       if (sparkHistory.length > 80) sparkHistory.shift();
       drawSparkline();
     }
 
-    // --------- Gravity logic ---------
+    // --------- Gravity ---------
     function applyNaiveGravity() {
-      const indices = Array.from(particleIndices);
-      const forces = indices.map(() => new THREE.Vector3());
-      // Pairwise interactions
-      for (let a = 0; a < indices.length; a++) {
-        const ia = indices[a];
-        const pa = dynamicPositions[ia];
-        const ma = density[ia] + 0.1;
-        for (let b = a + 1; b < indices.length; b++) {
-          const ib = indices[b];
-          const pb = dynamicPositions[ib];
-          const mb = density[ib] + 0.1;
-          const dir = new THREE.Vector3().subVectors(pb, pa);
-          const dist2 = dir.lengthSq() + softening * softening;
-          const inv = 1 / Math.sqrt(dist2);
-          dir.normalize();
-          const f = G * ma * mb * inv * inv;
-          dir.multiplyScalar(f);
-          forces[a].add(dir);
-          forces[b].sub(dir);
-        }
-      }
-      // Integrate
+      const ids = [...particleIndices];
+      const forces = ids.map(() => new THREE.Vector3());
       let kinetic = 0;
       let potential = 0;
-      for (let a = 0; a < indices.length; a++) {
-        const i = indices[a];
-        const v = particleVel.get(i);
-        v.addScaledVector(forces[a], FIXED_DT);
-        v.multiplyScalar(1 - damping);
-        dynamicPositions[i].addScaledVector(v, FIXED_DT);
-        kinetic += 0.5 * (density[i] + 0.1) * v.lengthSq();
+      for (let a = 0; a < ids.length; a++) {
+        for (let b = a + 1; b < ids.length; b++) {
+          const ia = ids[a];
+          const ib = ids[b];
+          const pa = dynamicPositions[ia];
+          const pb = dynamicPositions[ib];
+          const delta = new THREE.Vector3().subVectors(pb, pa);
+          const distSq = Math.max(delta.lengthSq(), softening * softening);
+          const invDist = 1 / Math.sqrt(distSq);
+          const forceMag = (G * ua[ia] * ua[ib]) / distSq;
+          const dir = delta.multiplyScalar(invDist);
+          const f = dir.clone().multiplyScalar(forceMag);
+          forces[a].add(f);
+          forces[b].sub(f);
+          potential -= G * ua[ia] * ua[ib] * invDist;
+        }
       }
-      // approximate potential via total force magnitude
-      for (let a = 0; a < indices.length; a++) {
-        potential += forces[a].length();
+      for (let k = 0; k < ids.length; k++) {
+        const i = ids[k];
+        const vel = particleVel.get(i) || new THREE.Vector3();
+        vel.add(forces[k].multiplyScalar(FIXED_DT));
+        vel.multiplyScalar(1 - damping);
+        particleVel.set(i, vel);
+        dynamicPositions[i].add(vel.clone().multiplyScalar(FIXED_DT));
+        kinetic += 0.5 * vel.lengthSq();
       }
-      return { kinetic, potential: potential * 0.5 };
+      return { kinetic, potential };
     }
 
     function applyRelationalGravity() {
-      // Simple stencil: shift positions slightly toward density gradient
-      const offsets = [
-        [1, 0, 0],
-        [-1, 0, 0],
-        [0, 1, 0],
-        [0, -1, 0],
-        [0, 0, 1],
-        [0, 0, -1]
-      ];
+      const temp = new THREE.Vector3();
+      let kinetic = 0.05;
+      let potential = 0.05;
       for (let x = 1; x < GRID - 1; x++) {
         for (let y = 1; y < GRID - 1; y++) {
           for (let z = 1; z < GRID - 1; z++) {
             const i = indexFromXYZ(x, y, z);
-            let gx = 0,
-              gy = 0,
-              gz = 0;
-            offsets.forEach(([dx, dy, dz]) => {
-              const ni = indexFromXYZ(x + dx, y + dy, z + dz);
-              const diff = density[ni] - density[i];
-              gx += diff * dx;
-              gy += diff * dy;
-              gz += diff * dz;
-            });
-            const disp = new THREE.Vector3(gx, gy, gz).multiplyScalar(G * 0.02);
-            dynamicPositions[i].addScaledVector(disp, FIXED_DT);
+            const gradX = density[indexFromXYZ(x + 1, y, z)] - density[indexFromXYZ(x - 1, y, z)];
+            const gradY = density[indexFromXYZ(x, y + 1, z)] - density[indexFromXYZ(x, y - 1, z)];
+            const gradZ = density[indexFromXYZ(x, y, z + 1)] - density[indexFromXYZ(x, y, z - 1)];
+            temp.set(gradX, gradY, gradZ).multiplyScalar(G * 0.05);
+            dynamicPositions[i].add(temp);
+            dynamicPositions[i].lerp(basePositions[i], damping * 0.5);
           }
         }
       }
-      // mild damping back toward base
-      for (let i = 0; i < cellCount; i++) {
-        const base = basePositions[i];
-        dynamicPositions[i].lerp(base, damping * 0.5);
-      }
-      return { kinetic: 0.1, potential: 0.1 };
+      return { kinetic, potential };
     }
 
-    // --------- Astro agents & classification ---------
+    // --------- Agents ---------
+    let galaxyCounter = 0;
     function updateAgents() {
       cellType.fill(0);
       galaxyIds.fill(-1);
+      const starThreshold = 0.82;
+      const bhDensityThreshold = 0.9;
+      const bhCurvThreshold = 0.12;
 
-      const starIdx = [];
-      const bhIdx = [];
+      const bins = new Map();
       for (let i = 0; i < cellCount; i++) {
-        if (density[i] > 0.82) {
-          starIdx.push(i);
+        const d = density[i];
+        const k = curvature[i];
+        if (d > bhDensityThreshold && k > bhCurvThreshold) {
+          cellType[i] = 2;
+        } else if (d > starThreshold) {
           cellType[i] = 1;
         }
-        if (density[i] > 0.92 && curvature[i] > 0.05) {
-          bhIdx.push(i);
-          cellType[i] = 2;
+        if (cellType[i] > 0) {
+          const p = basePositions[i];
+          const key = `${Math.round(p.x / 6)},${Math.round(p.y / 6)},${Math.round(p.z / 6)}`;
+          if (!bins.has(key)) bins.set(key, []);
+          bins.get(key).push(i);
         }
       }
 
-      // cluster stars into coarse galaxies by position band
-      const clusterMembers = new Map();
-      starIdx.forEach(i => {
-        const p = basePositions[i];
-        const key = `${Math.round(p.x / 6)},${Math.round(
-          p.y / 6
-        )},${Math.round(p.z / 6)}`;
-        if (!clusterMembers.has(key)) clusterMembers.set(key, []);
-        clusterMembers.get(key).push(i);
-      });
-
-      const entries = [];
+      let html = '';
       let gid = 1;
-      clusterMembers.forEach((members, key) => {
-        if (members.length < 8) return;
-        const id = gid++;
-        members.forEach(i => {
-          galaxyIds[i] = id;
-        });
-        let bhInCluster = 0;
-        members.forEach(i => {
-          if (cellType[i] === 2) bhInCluster++;
-        });
-        const mass = (members.length * 0.8 + bhInCluster * 4.2).toFixed(1);
-        entries.push(
-          `Agent G-${id}: ${members.length} stars, ${bhInCluster} BH cores, mass +${mass}%`
-        );
+      bins.forEach(indices => {
+        if (indices.length >= 8) {
+          let stars = 0;
+          let bh = 0;
+          let mass = 0;
+          indices.forEach(i => {
+            if (cellType[i] === 1) stars++;
+            if (cellType[i] === 2) bh++;
+            mass += ua[i];
+            galaxyIds[i] = gid;
+          });
+          const massDelta = ((mass / indices.length - 0.5) * 100).toFixed(1);
+          html += `Agent G-${gid}: ${stars} stars, ${bh} BH cores, mass ${massDelta}%<br>`;
+          gid++;
+        }
       });
-
-      if (bhIdx.length > 0 && entries.length === 0) {
-        entries.push(`BH seeds: ${bhIdx.length} cores detected`);
-      } else if (bhIdx.length > 0) {
-        entries.push(`Additional BH seeds outside major halos: ${bhIdx.length}`);
+      galaxyCounter = gid - 1;
+      if (!html) {
+        html = '<span class="text-muted">No active clusters. Halos stabilizing...</span>';
       }
-
-      if (entries.length === 0) {
-        entries.push('No significant agents this tick; halos stabilizing.');
-      }
-      agentsDiv.innerHTML = entries.map(e => `<div>${e}</div>`).join('');
+      agentsDiv.innerHTML = html;
     }
 
-    function classifyLabel(i) {
-      const t = cellType[i];
-      if (t === 1) return 'Star cell';
-      if (t === 2) return 'Black-hole seed';
-      return 'Gas / background cell';
-    }
-
-    // --------- Cell inspector ---------
-    function updateInspector(index) {
-      if (index == null) {
-        inspectorDetails.textContent = 'No cell selected.';
-        return;
-      }
-      const { x, y, z } = xyzFromIndex(index);
-      const p = dynamicPositions[index];
-      const uaVal = ua[index];
-      const ubVal = ub[index];
-      const d = density[index];
-      const k = curvature[index];
-      const classLabel = classifyLabel(index);
-      const gid = galaxyIds[index];
-      const galaxyLabel = gid > 0 ? `G-${gid}` : 'none';
-
-      inspectorDetails.textContent =
-        `Index: ${index}\n` +
-        `Grid coords: (${x}, ${y}, ${z})\n` +
-        `World coords: (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})\n\n` +
-        `UA (mass lock): ${uaVal.toFixed(3)}\n` +
-        `UB (geom lock): ${ubVal.toFixed(3)}\n` +
-        `Density ρ: ${d.toFixed(3)}\n` +
-        `Curvature κ: ${k.toFixed(4)}\n\n` +
-        `Classification: ${classLabel}\n` +
-        `Galaxy agent: ${galaxyLabel}`;
-    }
-
+    // --------- Inspector ---------
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
 
+    function updateInspector(i) {
+      if (i === null || i === undefined) {
+        inspectorDetails.textContent = 'No cell selected.';
+        return;
+      }
+      const { x, y, z } = xyzFromIndex(i);
+      const pos = dynamicPositions[i];
+      const uaVal = ua[i];
+      const ubVal = ub[i];
+      const d = density[i];
+      const k = curvature[i];
+      const type = cellType[i] === 2 ? 'Black-hole seed' : cellType[i] === 1 ? 'Star cell' : 'Gas / background cell';
+      const galaxy = galaxyIds[i] > 0 ? `G-${galaxyIds[i]}` : 'None';
+      inspectorDetails.textContent = `Index ${i} ( ${x}, ${y}, ${z} )
+World: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})
+UA ${uaVal.toFixed(3)} · UB ${ubVal.toFixed(3)}
+Density ${d.toFixed(4)} · Curvature ${k.toFixed(4)}
+Class: ${type}
+Galaxy: ${galaxy}`;
+      selectedIndex = i;
+      highlight.visible = true;
+      highlight.position.copy(pos);
+    }
+
     function onPointerDown(event) {
-      if (event.button !== 0) return; // left click only
+      if (event.button !== 0) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      pointer.set(x, y);
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const intersects = raycaster.intersectObject(instanced);
       if (intersects.length > 0 && intersects[0].instanceId !== undefined) {
-        const i = intersects[0].instanceId;
-        selectedIndex = i;
-        highlight.visible = true;
-        highlight.position.copy(dynamicPositions[i]);
-        updateInspector(i);
+        updateInspector(intersects[0].instanceId);
       }
     }
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
@@ -854,38 +801,31 @@
     }
 
     function applyPreset(name) {
-      // fill UA/UB based on chosen pattern
       for (let i = 0; i < cellCount; i++) {
         const p = basePositions[i];
-        const r = p.length() / (HALF * CELL_SPACING * 1.3);
-        const noise = Math.random() * 0.12;
+        const r = p.length() / (HALF * CELL_SPACING * 1.25);
+        const noise = Math.random() * 0.08;
         if (name === 'cluster') {
-          // central cluster: high at center, decays with radius
-          const core = Math.exp(-r * r * 1.8);
+          const core = Math.exp(-r * r * 2.2);
           ua[i] = THREE.MathUtils.clamp(core + noise, 0, 1);
-          ub[i] = THREE.MathUtils.clamp(0.5 + (0.5 - r) * 0.6 + (Math.random() - 0.5) * 0.15, 0, 1);
+          ub[i] = THREE.MathUtils.clamp(0.55 + (0.6 - r) * 0.6 + (Math.random() - 0.5) * 0.12, 0, 1);
         } else if (name === 'filaments') {
-          // filaments along axes (simple "cosmic web" style)
-          const axisDist = Math.min(Math.abs(p.x), Math.abs(p.z));
-          const spine = Math.exp(-(axisDist * axisDist) / 40);
-          const layer = Math.exp(-(Math.abs(p.y) * Math.abs(p.y)) / 35);
-          ua[i] = THREE.MathUtils.clamp(spine * layer + noise * 0.8, 0, 1);
-          ub[i] = THREE.MathUtils.clamp(0.4 + (p.y / (HALF * CELL_SPACING)) * 0.3 + (Math.random() - 0.5) * 0.2, 0, 1);
+          const axis = Math.min(Math.abs(p.x), Math.abs(p.z));
+          const spine = Math.exp(-(axis * axis) / 35);
+          const layer = Math.exp(-(Math.abs(p.y) * Math.abs(p.y)) / 28);
+          ua[i] = THREE.MathUtils.clamp(spine * layer + noise * 0.9, 0, 1);
+          ub[i] = THREE.MathUtils.clamp(0.4 + (p.y / (HALF * CELL_SPACING)) * 0.35 + (Math.random() - 0.5) * 0.18, 0, 1);
         } else if (name === 'shells') {
-          // void at center, dense shells around a radius
           const r0 = 0.6;
           const shell = Math.exp(-((r - r0) * (r - r0)) * 18);
           ua[i] = THREE.MathUtils.clamp(shell + noise * 0.8, 0, 1);
           ub[i] = THREE.MathUtils.clamp(r * 0.9 + (Math.random() - 0.5) * 0.15, 0, 1);
         } else {
-          // random gas baseline
           ua[i] = Math.random();
           ub[i] = Math.random();
         }
         dynamicPositions[i].copy(basePositions[i]);
       }
-
-      // reset velocities
       particleVel.forEach(v => v.set(0, 0, 0));
       resetSimState();
       computeFields();
@@ -893,7 +833,6 @@
       applyOverlayColors();
       updateAgents();
 
-      // UI
       presetLabel.textContent =
         name === 'cluster'
           ? 'Central Cluster'
@@ -902,14 +841,12 @@
           : name === 'shells'
           ? 'Voids & Shells'
           : 'Random Gas';
+      [...presetButtonsDiv.children].forEach(btn => btn.classList.toggle('active', btn.dataset.preset === name));
     }
 
     presetButtonsDiv.addEventListener('click', e => {
       if (e.target.tagName !== 'BUTTON') return;
       const preset = e.target.dataset.preset;
-      [...presetButtonsDiv.children].forEach(btn =>
-        btn.classList.toggle('active', btn === e.target)
-      );
       applyPreset(preset);
     });
 
@@ -936,7 +873,6 @@
       timescaleSlider.value = timeScale.toFixed(2);
       timescaleLabel.textContent = `${timeScale.toFixed(2)}×`;
     });
-
     timescaleSlider.addEventListener('input', () => {
       timeScale = parseFloat(timescaleSlider.value);
       timescaleLabel.textContent = `${timeScale.toFixed(2)}×`;
@@ -945,104 +881,94 @@
     document.getElementById('overlay-buttons').addEventListener('click', e => {
       if (e.target.tagName !== 'BUTTON') return;
       overlayMode = e.target.dataset.mode;
-      [...e.currentTarget.children].forEach(btn =>
-        btn.classList.toggle('active', btn === e.target)
-      );
+      [...e.currentTarget.children].forEach(btn => btn.classList.toggle('active', btn === e.target));
       applyOverlayColors();
     });
 
-    document
-      .getElementById('gravity-toggle')
-      .addEventListener('click', e => {
-        gravityOn = !gravityOn;
-        e.target.textContent = gravityOn ? 'Gravity: ON' : 'Gravity: OFF';
-        if (gravityOn && energy0 === null) energy0 = 0.0001; // initialize baseline
-      });
-
+    document.getElementById('gravity-toggle').addEventListener('click', e => {
+      gravityOn = !gravityOn;
+      e.target.textContent = gravityOn ? 'Gravity: ON' : 'Gravity: OFF';
+      if (gravityOn && energy0 === null) energy0 = 0.0001;
+    });
     document.getElementById('gravity-mode').addEventListener('click', e => {
       if (e.target.tagName !== 'BUTTON') return;
       gravityMode = e.target.dataset.mode;
-      [...e.currentTarget.children].forEach(btn =>
-        btn.classList.toggle('active', btn === e.target)
-      );
+      [...e.currentTarget.children].forEach(btn => btn.classList.toggle('active', btn === e.target));
     });
-
     const gSlider = document.getElementById('g-slider');
     const dampingSlider = document.getElementById('damping-slider');
-    const softSlider = document.getElementById('softening-slider');
+    const softeningSlider = document.getElementById('softening-slider');
+    const gLabel = document.getElementById('g-label');
+    const dampingLabel = document.getElementById('damping-label');
+    const softeningLabel = document.getElementById('softening-label');
+
     gSlider.addEventListener('input', () => {
       G = parseFloat(gSlider.value);
-      document.getElementById('g-label').textContent = G.toFixed(2);
+      gLabel.textContent = G.toFixed(2);
     });
     dampingSlider.addEventListener('input', () => {
       damping = parseFloat(dampingSlider.value);
-      document.getElementById('damping-label').textContent =
-        damping.toFixed(3);
+      dampingLabel.textContent = damping.toFixed(3);
     });
-    softSlider.addEventListener('input', () => {
-      softening = parseFloat(softSlider.value);
-      document.getElementById('softening-label').textContent =
-        softening.toFixed(1);
+    softeningSlider.addEventListener('input', () => {
+      softening = parseFloat(softeningSlider.value);
+      softeningLabel.textContent = softening.toFixed(1);
     });
 
-    // keyboard shortcuts
+    // Keyboard shortcuts
     window.addEventListener('keydown', e => {
       if (e.code === 'Space') {
         e.preventDefault();
         pauseBtn.click();
       } else if (e.key === '.') {
-        stepBtn.click();
+        if (!running) performTick();
       } else if (e.key === '-' || e.key === '_') {
         slowerBtn.click();
       } else if (e.key === '+' || e.key === '=') {
         fasterBtn.click();
       } else if (e.key.toLowerCase() === 'd') {
-        document.querySelector('[data-mode="density"]').click();
+        overlayMode = 'density';
+        document.querySelectorAll('#overlay-buttons button').forEach(btn =>
+          btn.classList.toggle('active', btn.dataset.mode === 'density')
+        );
+        applyOverlayColors();
       } else if (e.key.toLowerCase() === 'c') {
-        document.querySelector('[data-mode="curvature"]').click();
+        overlayMode = 'curvature';
+        document.querySelectorAll('#overlay-buttons button').forEach(btn =>
+          btn.classList.toggle('active', btn.dataset.mode === 'curvature')
+        );
+        applyOverlayColors();
       } else if (e.key.toLowerCase() === 'g') {
         document.getElementById('gravity-toggle').click();
       }
     });
 
-    window.addEventListener('resize', () => {
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-    });
-
-    // --------- Tick logic ---------
+    // --------- Simulation loop ---------
+    let lastTime = performance.now();
     function performTick() {
-      // compute fields first
       computeFields();
-      // gravity
       let energy = { kinetic: 0, potential: 0 };
       if (gravityOn) {
-        if (gravityMode === 'naive') energy = applyNaiveGravity();
-        else energy = applyRelationalGravity();
+        energy = gravityMode === 'naive' ? applyNaiveGravity() : applyRelationalGravity();
       }
       updateInstanceMatrices();
       applyOverlayColors();
       tick++;
-      tickLabel.textContent = tick.toString();
-      // energy HUD
-      if (energy0 === null) energy0 = Math.max(energy.kinetic + energy.potential, 0.0001);
+
       const totalE = energy.kinetic + energy.potential;
-      const drift = ((totalE - energy0) / energy0) || 0;
-      energyBreakdown.textContent = `${energy.kinetic.toFixed(
-        3
-      )}k / ${energy.potential.toFixed(3)}p / ${totalE.toFixed(3)}T`;
+      if (energy0 === null) energy0 = Math.max(totalE, 0.0001);
+      const drift = (totalE - energy0) / energy0;
+      energyBreakdown.textContent = `${energy.kinetic.toFixed(3)}k / ${energy.potential.toFixed(3)}p / ${totalE.toFixed(3)}T`;
       energyDrift.textContent = drift.toFixed(4);
-      // agents (less frequent)
+      tickLabel.textContent = tick.toString();
+
       if (tick % 10 === 0) updateAgents();
     }
 
-    // --------- Animation loop ---------
-    let last = performance.now();
     function animate(now) {
-      requestAnimationFrame(animate);
-      const delta = (now - last) / 1000;
-      last = now;
+      const deltaMs = now - lastTime;
+      lastTime = now;
+      const delta = Math.min(0.1, deltaMs / 1000);
       if (running) {
         accumulated += delta * timeScale;
         simTime += delta * timeScale;
@@ -1052,16 +978,27 @@
         }
       }
       simtimeLabel.textContent = `${simTime.toFixed(2)}s`;
-      stars.rotation.y += 0.0004; // slow starfield drift
+      stars.rotation.y += 0.0004;
       controls.update();
       renderer.render(scene, camera);
+      requestAnimationFrame(animate);
     }
 
+    // --------- Resize ---------
+    window.addEventListener('resize', () => {
+      const { clientWidth, clientHeight } = container;
+      renderer.setSize(clientWidth, clientHeight);
+      camera.aspect = clientWidth / clientHeight;
+      camera.updateProjectionMatrix();
+    });
+
     // --------- Boot ---------
-    // start with Random Gas preset
     applyPreset('random');
     updateInspector(null);
-    animate(performance.now());
-  </script>
+    requestAnimationFrame(animate);
+  } catch (err) {
+    console.error('PRU init failed', err);
+  }
+</script>
 </body>
 </html>
