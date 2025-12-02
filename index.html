@@ -264,6 +264,16 @@
       <label class="small">Current preset: <span id="preset-label">Random Gas</span></label>
     </div>
 
+    <div class="section controls" id="scale-modes">
+      <h3>Scale Modes</h3>
+      <div class="segmented" id="scale-mode-buttons">
+        <button data-scale="lattice" class="active">PRU Lattice</button>
+        <button data-scale="solar_system">Solar System</button>
+        <button data-scale="galaxy">Galaxy Orbit</button>
+      </div>
+      <label class="small">Switch between lattice, solar system, and galaxy-scale views.</label>
+    </div>
+
     <div class="section controls" id="overlays">
       <h3>Overlays</h3>
       <div class="segmented" id="overlay-buttons">
@@ -319,6 +329,24 @@
       <div id="inspector-details">No cell selected.</div>
     </div>
 
+    <div class="section" id="solar-editor">
+      <h3>Solar System Editor</h3>
+      <label class="small">Active body</label>
+      <select id="solar-body-select"></select>
+
+      <label class="small">Orbit radius</label>
+      <input type="range" id="solar-orbit-radius" min="5" max="40" step="0.5">
+      <div class="row"><span class="text-muted">Value</span><span id="solar-orbit-radius-label"></span></div>
+
+      <label class="small">Orbit period (s)</label>
+      <input type="range" id="solar-orbit-period" min="5" max="120" step="1">
+      <div class="row"><span class="text-muted">Value</span><span id="solar-orbit-period-label"></span></div>
+
+      <label class="small">Planet size</label>
+      <input type="range" id="solar-radius" min="0.2" max="2.0" step="0.1">
+      <div class="row"><span class="text-muted">Value</span><span id="solar-radius-label"></span></div>
+    </div>
+
     <div class="section" id="agents-section">
       <h3>Astro Agents (Phase 4 preview)</h3>
       <div id="agents"></div>
@@ -359,7 +387,7 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.maxDistance = 200;
+    controls.maxDistance = 1200;
 
     scene.add(new THREE.AmbientLight(0x8899ff, 0.5));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -391,6 +419,15 @@
     const grid = new THREE.GridHelper(120, 20, 0x1f2a3a, 0x111723);
     grid.position.y = -14;
     scene.add(grid);
+
+    const latticeGroup = new THREE.Group();
+    const solarSystemGroup = new THREE.Group();
+    const galaxyGroup = new THREE.Group();
+    scene.add(latticeGroup);
+    scene.add(solarSystemGroup);
+    scene.add(galaxyGroup);
+    solarSystemGroup.visible = false;
+    galaxyGroup.visible = false;
 
     // --------- PRU lattice data ---------
     const GRID = 16;
@@ -451,7 +488,7 @@
       3
     );
     instanced.geometry.setAttribute('instanceColor', instanced.instanceColor);
-    scene.add(instanced);
+    latticeGroup.add(instanced);
 
     // Selection highlight
     const highlight = new THREE.Mesh(
@@ -460,8 +497,34 @@
     );
     highlight.visible = false;
     highlight.renderOrder = 10;
-    scene.add(highlight);
+    latticeGroup.add(highlight);
     let selectedIndex = null;
+
+    const starGeoLayer = new THREE.BufferGeometry();
+    const starMatLayer = new THREE.PointsMaterial({
+      size: 0.38,
+      transparent: true,
+      opacity: 0.95,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const starPoints = new THREE.Points(starGeoLayer, starMatLayer);
+    starPoints.visible = true;
+    latticeGroup.add(starPoints);
+
+    const bhGeoLayer = new THREE.BufferGeometry();
+    const bhMatLayer = new THREE.PointsMaterial({
+      size: 0.32,
+      transparent: true,
+      opacity: 1.0,
+      color: new THREE.Color(0xd1ddff),
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const bhPoints = new THREE.Points(bhGeoLayer, bhMatLayer);
+    bhPoints.visible = true;
+    latticeGroup.add(bhPoints);
 
     function updateInstanceMatrices() {
       const dummy = new THREE.Object3D();
@@ -507,6 +570,16 @@
     const agentsDiv = document.getElementById('agents');
     const presetLabel = document.getElementById('preset-label');
     const inspectorDetails = document.getElementById('inspector-details');
+    const scaleButtonsDiv = document.getElementById('scale-mode-buttons');
+    const solarEditorSection = document.getElementById('solar-editor');
+    const solarSelect = document.getElementById('solar-body-select');
+    const solarOrbitRadius = document.getElementById('solar-orbit-radius');
+    const solarOrbitRadiusLabel = document.getElementById('solar-orbit-radius-label');
+    const solarOrbitPeriod = document.getElementById('solar-orbit-period');
+    const solarOrbitPeriodLabel = document.getElementById('solar-orbit-period-label');
+    const solarRadiusSlider = document.getElementById('solar-radius');
+    const solarRadiusLabel = document.getElementById('solar-radius-label');
+    solarEditorSection.style.display = 'none';
 
     const sparkCanvas = document.getElementById('sparkline');
     const sparkCtx = sparkCanvas.getContext('2d');
@@ -571,6 +644,8 @@
     let timeScale = 1.0;
     let accumulated = 0;
     const FIXED_DT = 0.02;
+
+    let scaleMode = 'lattice';
 
     let gravityOn = false;
     let gravityMode = 'naive';
@@ -694,6 +769,74 @@
 
     // --------- Agents ---------
     let galaxyCounter = 0;
+    const lensingScale = 1.35;
+
+    function updateStellarLayers() {
+      const starPositions = [];
+      const starColors = [];
+      const bhPositions = [];
+      const color = new THREE.Color();
+
+      for (let i = 0; i < cellCount; i++) {
+        if (cellType[i] === 1) {
+          const p = dynamicPositions[i];
+          starPositions.push(p.x, p.y, p.z);
+          const tint = THREE.MathUtils.clamp((density[i] - 0.7) / 0.4, 0, 1);
+          color.setHSL(0.1 + 0.25 * (1 - tint), 0.8, 0.65 + 0.1 * tint);
+          starColors.push(color.r, color.g, color.b);
+        } else if (cellType[i] === 2) {
+          const p = dynamicPositions[i];
+          bhPositions.push(p.x, p.y, p.z);
+        }
+      }
+
+      starGeoLayer.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(starPositions), 3)
+      );
+      starGeoLayer.setAttribute(
+        'color',
+        new THREE.BufferAttribute(new Float32Array(starColors), 3)
+      );
+      starGeoLayer.computeBoundingSphere();
+
+      const haloPositions = new Float32Array(bhPositions.length * 3);
+      for (let i = 0; i < bhPositions.length; i += 3) {
+        haloPositions[i] = bhPositions[i] * lensingScale;
+        haloPositions[i + 1] = bhPositions[i + 1] * lensingScale;
+        haloPositions[i + 2] = bhPositions[i + 2] * lensingScale;
+      }
+
+      bhGeoLayer.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(bhPositions), 3)
+      );
+      bhGeoLayer.computeBoundingSphere();
+      bhMatLayer.size = 0.34 + Math.min(0.12, bhPositions.length * 0.0002);
+
+      const auraGeometry = new THREE.BufferGeometry();
+      auraGeometry.setAttribute('position', new THREE.BufferAttribute(haloPositions, 3));
+      const auraPoints = new THREE.Points(
+        auraGeometry,
+        new THREE.PointsMaterial({
+          size: 0.55,
+          transparent: true,
+          opacity: 0.22,
+          color: 0x9fc4ff,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+      auraPoints.renderOrder = 0.5;
+      if (bhPoints.children.length) {
+        const child = bhPoints.children[0];
+        child.geometry?.dispose();
+        child.material?.dispose();
+        bhPoints.remove(child);
+      }
+      bhPoints.add(auraPoints);
+    }
+
     function updateAgents() {
       cellType.fill(0);
       galaxyIds.fill(-1);
@@ -741,7 +884,310 @@
         html = '<span class="text-muted">No active clusters. Halos stabilizing...</span>';
       }
       agentsDiv.innerHTML = html;
+      updateStellarLayers();
     }
+
+    // --------- Scale layers: solar system & galaxy ---------
+    const solarBodies = [
+      { id: 'sun', type: 'star', radius: 2.0, color: 0xfff6c7, position: new THREE.Vector3(0, 0, 0) },
+      { id: 'mercury', type: 'planet', orbitRadius: 7, orbitPeriod: 8, eccentricity: 0.03, inclination: 0.01, radius: 0.3, color: 0xd6d5d2, phaseOffset: 0.2 },
+      { id: 'venus', type: 'planet', orbitRadius: 9.5, orbitPeriod: 13, eccentricity: 0.02, inclination: 0.015, radius: 0.45, color: 0xf5c07a, phaseOffset: 1.6 },
+      { id: 'earth', type: 'planet', orbitRadius: 12, orbitPeriod: 20, eccentricity: 0.05, inclination: 0.02, radius: 0.6, color: 0x7fb8ff, phaseOffset: 0.0 },
+      { id: 'mars', type: 'planet', orbitRadius: 15, orbitPeriod: 28, eccentricity: 0.06, inclination: 0.018, radius: 0.45, color: 0xff876c, phaseOffset: 2.1 },
+      { id: 'jupiter', type: 'planet', orbitRadius: 21, orbitPeriod: 60, eccentricity: 0.03, inclination: 0.022, radius: 1.2, color: 0xf0d4a6, phaseOffset: 1.1 },
+      { id: 'saturn', type: 'planet', orbitRadius: 27, orbitPeriod: 85, eccentricity: 0.04, inclination: 0.028, radius: 1.0, color: 0xf3e2c1, phaseOffset: 0.6 },
+      { id: 'neptune', type: 'planet', orbitRadius: 34, orbitPeriod: 115, eccentricity: 0.02, inclination: 0.03, radius: 0.9, color: 0x7ac8f7, phaseOffset: 2.4 }
+    ];
+
+    const solarMeshes = new Map();
+    const solarTrails = new Map();
+    const solarRings = new Map();
+    const TRAIL_SEGMENTS = 120;
+    let sunLight = null;
+
+    function createTrail(initial) {
+      const trailGeo = new THREE.BufferGeometry();
+      const arr = new Float32Array((TRAIL_SEGMENTS + 1) * 3);
+      for (let i = 0; i <= TRAIL_SEGMENTS; i++) {
+        arr[i * 3] = initial.x;
+        arr[i * 3 + 1] = initial.y;
+        arr[i * 3 + 2] = initial.z;
+      }
+      trailGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      const trail = new THREE.Line(
+        trailGeo,
+        new THREE.LineBasicMaterial({ color: 0x7fb8ff, transparent: true, opacity: 0.4 })
+      );
+      trail.frustumCulled = false;
+      return trail;
+    }
+
+    function initSolarSystem() {
+      solarBodies.forEach(body => {
+        if (body.type === 'star') {
+          const geo = new THREE.SphereGeometry(body.radius, 28, 28);
+          const mat = new THREE.MeshStandardMaterial({
+            color: body.color,
+            emissive: new THREE.Color(0xfff3c0),
+            emissiveIntensity: 1.8,
+            roughness: 0.25
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.userData.baseRadius = body.radius;
+          solarMeshes.set(body.id, mesh);
+          solarSystemGroup.add(mesh);
+          sunLight = new THREE.PointLight(0xfff1c4, 1.4, 180);
+          mesh.add(sunLight);
+          return;
+        }
+
+        const geo = new THREE.SphereGeometry(body.radius, 24, 24);
+        const mat = new THREE.MeshStandardMaterial({ color: body.color, roughness: 0.45, metalness: 0.05 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.userData.baseRadius = body.radius;
+        solarMeshes.set(body.id, mesh);
+        solarSystemGroup.add(mesh);
+
+        const ringGeo = new THREE.RingGeometry(body.orbitRadius - 0.05, body.orbitRadius + 0.05, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x2f425b, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2 + body.inclination;
+        solarRings.set(body.id, ring);
+        solarSystemGroup.add(ring);
+
+        const initialPos = new THREE.Vector3(body.orbitRadius, 0, 0);
+        const trail = createTrail(initialPos);
+        solarTrails.set(body.id, trail);
+        solarSystemGroup.add(trail);
+      });
+    }
+
+    function updateSolarSystem(time) {
+      solarBodies.forEach(body => {
+        if (body.type === 'star') return;
+        const omega = (2 * Math.PI) / body.orbitPeriod;
+        const angle = omega * time + body.phaseOffset;
+        const r = body.orbitRadius * (1 - body.eccentricity * Math.cos(angle));
+        const x = r * Math.cos(angle);
+        const z = r * Math.sin(angle);
+        const y = Math.sin(body.inclination) * r * 0.2;
+        const pos = new THREE.Vector3(x, y, z);
+
+        const mesh = solarMeshes.get(body.id);
+        if (mesh) mesh.position.copy(pos);
+        const ring = solarRings.get(body.id);
+        if (ring) {
+          ring.rotation.x = -Math.PI / 2 + body.inclination;
+          ring.geometry.computeBoundingSphere();
+        }
+        const trail = solarTrails.get(body.id);
+        if (trail) {
+          const arr = trail.geometry.attributes.position.array;
+          arr.copyWithin(0, 3);
+          arr[arr.length - 3] = pos.x;
+          arr[arr.length - 2] = pos.y;
+          arr[arr.length - 1] = pos.z;
+          trail.geometry.attributes.position.needsUpdate = true;
+        }
+      });
+    }
+
+    function refreshSolarGeometry(body) {
+      const mesh = solarMeshes.get(body.id);
+      if (mesh) {
+        mesh.scale.setScalar(body.radius / (mesh.userData.baseRadius || body.radius));
+      }
+      const ring = solarRings.get(body.id);
+      if (ring) {
+        ring.geometry.dispose();
+        ring.geometry = new THREE.RingGeometry(body.orbitRadius - 0.05, body.orbitRadius + 0.05, 64);
+        ring.rotation.x = -Math.PI / 2 + body.inclination;
+      }
+      const trail = solarTrails.get(body.id);
+      if (trail) {
+        const arr = trail.geometry.attributes.position.array;
+        for (let i = 0; i <= TRAIL_SEGMENTS; i++) {
+          const idx = i * 3;
+          arr[idx] = body.orbitRadius;
+          arr[idx + 1] = 0;
+          arr[idx + 2] = 0;
+        }
+        trail.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    const galaxyParams = { numStars: 5600, numArms: 3, armTightness: 1.8, armScatter: 0.35, radialScale: 180 };
+    let galaxyPoints = null;
+    const galaxySun = new THREE.Mesh(
+      new THREE.SphereGeometry(1.2, 22, 22),
+      new THREE.MeshStandardMaterial({ color: 0xffe0a3, emissive: 0xffd27f, emissiveIntensity: 1.1 })
+    );
+    const galacticOrbitRadius = 90;
+    const galacticOrbitPeriod = 260;
+    const galaxyOrbitPath = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        Array.from({ length: 120 }, (_, i) => {
+          const ang = (i / 120) * Math.PI * 2;
+          return new THREE.Vector3(Math.cos(ang) * galacticOrbitRadius, 0, Math.sin(ang) * galacticOrbitRadius);
+        })
+      ),
+      new THREE.LineBasicMaterial({ color: 0x38506e, transparent: true, opacity: 0.35 })
+    );
+    galaxyOrbitPath.rotation.x = -Math.PI / 2;
+
+    function initGalaxy() {
+      const positions = new Float32Array(galaxyParams.numStars * 3);
+      const colors = new Float32Array(galaxyParams.numStars * 3);
+      const color = new THREE.Color();
+
+      for (let i = 0; i < galaxyParams.numStars; i++) {
+        const arm = Math.floor(Math.random() * galaxyParams.numArms);
+        const armAngle = (arm / galaxyParams.numArms) * 2 * Math.PI;
+        const radius = galaxyParams.radialScale * Math.pow(Math.random(), 0.5);
+        const theta = armAngle + radius * galaxyParams.armTightness + (Math.random() - 0.5) * galaxyParams.armScatter;
+        const height = (Math.random() - 0.5) * 2.5;
+        const idx = i * 3;
+        positions[idx] = Math.cos(theta) * radius;
+        positions[idx + 1] = height;
+        positions[idx + 2] = Math.sin(theta) * radius;
+
+        const hue = 0.55 + Math.random() * 0.15;
+        const sat = 0.5 + Math.random() * 0.3;
+        const light = 0.5 + Math.random() * 0.4;
+        color.setHSL(hue, sat, light);
+        colors[idx] = color.r;
+        colors[idx + 1] = color.g;
+        colors[idx + 2] = color.b;
+      }
+
+      const galaxyGeo = new THREE.BufferGeometry();
+      galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      galaxyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const galaxyMat = new THREE.PointsMaterial({
+        size: 0.9,
+        sizeAttenuation: true,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false
+      });
+      galaxyPoints = new THREE.Points(galaxyGeo, galaxyMat);
+      galaxyPoints.rotation.x = Math.PI * -0.5;
+      galaxyGroup.add(galaxyPoints);
+      galaxyGroup.add(galaxySun);
+      galaxyGroup.add(galaxyOrbitPath);
+    }
+
+    function updateGalaxy(time) {
+      if (!galaxySun) return;
+      const omega = (2 * Math.PI) / galacticOrbitPeriod;
+      const angle = omega * time;
+      galaxySun.position.set(Math.cos(angle) * galacticOrbitRadius, 4, Math.sin(angle) * galacticOrbitRadius);
+      galaxySun.rotation.y += 0.005;
+      if (galaxyPoints) galaxyPoints.rotation.z += 0.0005;
+    }
+
+    function focusOnVector(targetVec, distance, elevationAngleRad = 0.4) {
+      const dir = new THREE.Vector3(0, Math.sin(elevationAngleRad), 1).normalize();
+      const camPos = targetVec.clone().addScaledVector(dir, distance);
+      camera.position.copy(camPos);
+      controls.target.copy(targetVec);
+      controls.update();
+    }
+
+    function focusOnSun() {
+      const sun = solarMeshes.get('sun');
+      if (sun) focusOnVector(sun.position, 55, 0.45);
+    }
+
+    function focusOnPlanet(id) {
+      const mesh = solarMeshes.get(id);
+      const body = solarBodies.find(b => b.id === id);
+      if (mesh && body) {
+        focusOnVector(mesh.position, Math.max(18, body.orbitRadius * 1.4), 0.35);
+      }
+    }
+
+    function focusOnGalaxy() {
+      focusOnVector(new THREE.Vector3(0, 0, 0), 260, 0.55);
+    }
+
+    function setScaleMode(mode) {
+      scaleMode = mode;
+      [...scaleButtonsDiv.children].forEach(btn => btn.classList.toggle('active', btn.dataset.scale === mode));
+      latticeGroup.visible = mode === 'lattice';
+      solarSystemGroup.visible = mode === 'solar_system';
+      galaxyGroup.visible = mode === 'galaxy';
+      grid.visible = mode === 'lattice';
+      highlight.visible = mode === 'lattice' && selectedIndex !== null;
+      solarEditorSection.style.display = mode === 'solar_system' ? 'block' : 'none';
+      if (mode === 'solar_system') {
+        focusOnSun();
+      } else if (mode === 'galaxy') {
+        focusOnGalaxy();
+      } else {
+        focusOnVector(new THREE.Vector3(0, 0, 0), 70, 0.5);
+      }
+    }
+
+    scaleButtonsDiv.addEventListener('click', e => {
+      if (e.target.tagName !== 'BUTTON') return;
+      setScaleMode(e.target.dataset.scale);
+    });
+
+    function syncSolarEditor(id) {
+      const body = solarBodies.find(b => b.id === id);
+      if (!body) return;
+      solarSelect.value = id;
+      solarOrbitRadius.value = body.orbitRadius;
+      solarOrbitRadiusLabel.textContent = `${body.orbitRadius.toFixed(1)} PRU`;
+      solarOrbitPeriod.value = body.orbitPeriod;
+      solarOrbitPeriodLabel.textContent = `${body.orbitPeriod.toFixed(0)} s`;
+      solarRadiusSlider.value = body.radius;
+      solarRadiusLabel.textContent = `${body.radius.toFixed(2)} u`;
+    }
+
+    function populateSolarEditor() {
+      solarSelect.innerHTML = '';
+      solarBodies
+        .filter(b => b.type === 'planet')
+        .forEach(body => {
+          const opt = document.createElement('option');
+          opt.value = body.id;
+          opt.textContent = body.id.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+          solarSelect.appendChild(opt);
+        });
+      const first = solarSelect.options[0]?.value;
+      if (first) syncSolarEditor(first);
+    }
+
+    solarSelect.addEventListener('change', e => {
+      syncSolarEditor(e.target.value);
+      focusOnPlanet(e.target.value);
+    });
+
+    solarOrbitRadius.addEventListener('input', () => {
+      const body = solarBodies.find(b => b.id === solarSelect.value);
+      if (!body) return;
+      body.orbitRadius = parseFloat(solarOrbitRadius.value);
+      solarOrbitRadiusLabel.textContent = `${body.orbitRadius.toFixed(1)} PRU`;
+      refreshSolarGeometry(body);
+    });
+
+    solarOrbitPeriod.addEventListener('input', () => {
+      const body = solarBodies.find(b => b.id === solarSelect.value);
+      if (!body) return;
+      body.orbitPeriod = parseFloat(solarOrbitPeriod.value);
+      solarOrbitPeriodLabel.textContent = `${body.orbitPeriod.toFixed(0)} s`;
+    });
+
+    solarRadiusSlider.addEventListener('input', () => {
+      const body = solarBodies.find(b => b.id === solarSelect.value);
+      if (!body) return;
+      body.radius = parseFloat(solarRadiusSlider.value);
+      solarRadiusLabel.textContent = `${body.radius.toFixed(2)} u`;
+      refreshSolarGeometry(body);
+    });
 
     // --------- Inspector ---------
     const raycaster = new THREE.Raycaster();
@@ -772,7 +1218,7 @@ Galaxy: ${galaxy}`;
     }
 
     function onPointerDown(event) {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || scaleMode !== 'lattice') return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -946,23 +1392,31 @@ Galaxy: ${galaxy}`;
     // --------- Simulation loop ---------
     let lastTime = performance.now();
     function performTick() {
-      computeFields();
       let energy = { kinetic: 0, potential: 0 };
-      if (gravityOn) {
-        energy = gravityMode === 'naive' ? applyNaiveGravity() : applyRelationalGravity();
+      if (scaleMode === 'lattice') {
+        computeFields();
+        if (gravityOn) {
+          energy = gravityMode === 'naive' ? applyNaiveGravity() : applyRelationalGravity();
+        }
+        updateInstanceMatrices();
+        applyOverlayColors();
+        if (tick % 10 === 0) updateAgents();
+      } else if (tick % 30 === 0) {
+        updateAgents();
       }
-      updateInstanceMatrices();
-      applyOverlayColors();
       tick++;
 
-      const totalE = energy.kinetic + energy.potential;
-      if (energy0 === null) energy0 = Math.max(totalE, 0.0001);
-      const drift = (totalE - energy0) / energy0;
-      energyBreakdown.textContent = `${energy.kinetic.toFixed(3)}k / ${energy.potential.toFixed(3)}p / ${totalE.toFixed(3)}T`;
-      energyDrift.textContent = drift.toFixed(4);
+      if (scaleMode === 'lattice') {
+        const totalE = energy.kinetic + energy.potential;
+        if (energy0 === null && gravityOn) energy0 = Math.max(totalE, 0.0001);
+        const drift = energy0 ? (totalE - energy0) / energy0 : 0;
+        energyBreakdown.textContent = `${energy.kinetic.toFixed(3)}k / ${energy.potential.toFixed(3)}p / ${totalE.toFixed(3)}T`;
+        energyDrift.textContent = drift.toFixed(4);
+      } else {
+        energyBreakdown.textContent = 'Lattice energy hidden';
+        energyDrift.textContent = 'n/a';
+      }
       tickLabel.textContent = tick.toString();
-
-      if (tick % 10 === 0) updateAgents();
     }
 
     function animate(now) {
@@ -978,6 +1432,8 @@ Galaxy: ${galaxy}`;
         }
       }
       simtimeLabel.textContent = `${simTime.toFixed(2)}s`;
+      if (scaleMode === 'solar_system') updateSolarSystem(simTime);
+      if (scaleMode === 'galaxy') updateGalaxy(simTime);
       stars.rotation.y += 0.0004;
       controls.update();
       renderer.render(scene, camera);
@@ -993,8 +1449,12 @@ Galaxy: ${galaxy}`;
     });
 
     // --------- Boot ---------
+    initSolarSystem();
+    initGalaxy();
+    populateSolarEditor();
     applyPreset('random');
     updateInspector(null);
+    setScaleMode('lattice');
     requestAnimationFrame(animate);
   } catch (err) {
     console.error('PRU init failed', err);
